@@ -1,0 +1,20 @@
+{
+    "name": "GesoftBranding",
+    "alias": "gesoftbranding",
+    "description": "Configurable helpdesk branding: product name, logo, favicon, and the AGPL source-code link in the footer.",
+    "version": "0.1.0",
+    "detailsUrl": "",
+    "author": "Gesoft",
+    "authorUrl": "",
+    "requiredAppVersion": "1.8.0",
+    "license": "AGPL-3.0",
+    "keywords": ["branding", "whitelabel", "agpl"],
+    "active": 0,
+    "order": 0,
+    "providers": [
+        "Modules\\GesoftBranding\\Providers\\GesoftBrandingServiceProvider"
+    ],
+    "aliases": {},
+    "files": [],
+    "requires": []
+}

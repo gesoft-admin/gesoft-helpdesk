@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Placeholder mark for an unbranded build.
+
+  Deliberately anonymous: this repository is public and carries no brand of its
+  own, so an operator who changes nothing gets a neutral glyph rather than
+  somebody else's identity. Replace it by setting HELPDESK_BRAND_LOGO.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Helpdesk">
+  <title>Helpdesk</title>
+  <rect width="96" height="96" rx="20" fill="#ffffff" fill-opacity="0.12"/>
+  <path d="M28 30h40a8 8 0 0 1 8 8v20a8 8 0 0 1-8 8H45l-13 10V66h-4a8 8 0 0 1-8-8V38a8 8 0 0 1 8-8z"
+        fill="none" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/>
+  <circle cx="38" cy="48" r="3.5" fill="#ffffff"/>
+  <circle cx="48" cy="48" r="3.5" fill="#ffffff"/>
+  <circle cx="58" cy="48" r="3.5" fill="#ffffff"/>
+</svg>

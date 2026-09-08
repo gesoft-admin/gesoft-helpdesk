@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Placeholder favicon for an unbranded build. Replace it by setting
+  HELPDESK_BRAND_FAVICON.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Helpdesk">
+  <title>Helpdesk</title>
+  <rect width="64" height="64" rx="14" fill="#2f3b46"/>
+  <path d="M18 20h28a6 6 0 0 1 6 6v14a6 6 0 0 1-6 6H31l-9 7v-7h-4a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z"
+        fill="none" stroke="#e8ecef" stroke-width="4" stroke-linejoin="round"/>
+</svg>

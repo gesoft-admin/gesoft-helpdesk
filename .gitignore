@@ -57,3 +57,12 @@ Thumbs.db
 *.sql.gz
 *.dump
 /database/*.sqlite
+
+# Upstream ignores .env and .env.testing by name. Laravel reads more than
+# those, and a file called .env.local or .env.production holds exactly the same
+# credentials — so ignore every variant and name back the three that are
+# deliberately committed as templates.
+.env*
+!.env.example
+!.env.travis
+!.env.gesoft.example

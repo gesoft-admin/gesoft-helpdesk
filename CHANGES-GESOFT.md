@@ -42,9 +42,24 @@ tracked by name and everything else in `Modules/` stays ignored. The same commit
 adds ignores for operator branding assets and for deployment leftovers
 (database dumps, backups) that have no business in a public repository.
 
-That is the only file outside `Modules/` and `public/brand/` that this fork
-modifies. Nothing else in core is touched: no UI rewrite, no Laravel internals,
-no ticket engine, no auth, no schema.
+A later commit widened the environment-file rule. Upstream ignores `.env` and
+`.env.testing` by name; Laravel reads more than those, and a file called
+`.env.local` or `.env.production` holds exactly the same credentials. Every
+variant is ignored now, with the three committed templates named back in.
+
+That is the only file outside `Modules/`, `public/brand/` and `scripts/` that
+this fork modifies. Nothing else in core is touched: no UI rewrite, no Laravel
+internals, no ticket engine, no auth, no schema.
+
+## Tooling
+
+`scripts/secret-scan.sh` — checks this fork's own changes for environment files,
+private keys and assigned credentials before they can be pushed. It scans our
+diff rather than the whole vendored tree, because a scan that prints thousands
+of lines is a scan people learn to ignore. Exit status is usable as a hook or a
+CI gate:
+
+    ln -s ../../scripts/secret-scan.sh .git/hooks/pre-commit
 
 ## Assets
 

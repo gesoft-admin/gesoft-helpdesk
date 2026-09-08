@@ -1,0 +1,13 @@
+.gesoft-rs-block { padding-bottom: 10px; }
+.gesoft-rs-list li { padding: 3px 0; line-height: 1.5; }
+.gesoft-rs-key { display: inline-block; min-width: 118px; color: #96a3ad; }
+.gesoft-rs-val { word-break: break-word; }
+.gesoft-rs-actions { margin-top: 10px; }
+.gesoft-rs-actions .btn { margin-right: 4px; margin-bottom: 4px; }
+.gesoft-rs-msg { min-height: 18px; margin-top: 6px; }
+.gesoft-rs-highlight { outline: 2px solid #6f7c87; outline-offset: 3px; transition: outline-color .3s; }
+.gesoft-rs-jump { cursor: pointer; }
+.gesoft-rs-list .gesoft-rs-val a { word-break: break-all; }
+.gesoft-rs-copy { padding: 0 4px; vertical-align: baseline; }
+.gesoft-rs-hint { margin-top: 8px; line-height: 1.5; }
+.gesoft-rs-msg.text-danger { color: #a94442; }

@@ -1,0 +1,22 @@
+{
+    "name": "GesoftRemoteSupport",
+    "alias": "gesoftremotesupport",
+    "description": "Start and track a RustDesk remote support session from inside a conversation.",
+    "version": "0.1.0",
+    "detailsUrl": "",
+    "author": "Gesoft",
+    "authorUrl": "",
+    "requiredAppVersion": "1.8.0",
+    "license": "AGPL-3.0",
+    "keywords": ["remote", "support", "rustdesk"],
+    "active": 0,
+    "order": 0,
+    "providers": [
+        "Modules\\GesoftRemoteSupport\\Providers\\GesoftRemoteSupportServiceProvider"
+    ],
+    "aliases": {},
+    "files": [
+        "start.php"
+    ],
+    "requires": []
+}

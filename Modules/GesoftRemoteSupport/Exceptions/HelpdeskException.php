@@ -59,7 +59,7 @@ class HelpdeskException extends \Exception
 
     /**
      * The sentence the agent sees. Deliberately vague about the backend: an
-     * agent cannot act on "connection refused to 192.168.122.1:8080" and it is
+     * agent cannot act on "connection refused to the backend host" and it is
      * not information the browser needs to have.
      */
     public function userMessage()

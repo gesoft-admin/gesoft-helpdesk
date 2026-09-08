@@ -55,6 +55,18 @@ while IFS= read -r f; do
     while read -r l; do report "private key" "$f:${l%%:*}"; done \
         < <(grep -nE "BEGIN [A-Z ]*PRIVATE KEY|ssh-rsa AAAA" "$f" 2>/dev/null)
 
+    # Internal addressing, but only in files this fork owns. A private IP is not
+    # a secret; publishing one still describes somebody's network for no gain,
+    # and examples in public documentation belong in the ranges reserved for it
+    # (RFC 5737) or under example.com (RFC 2606). Upstream's own files are not
+    # our business, so they are not checked.
+    case "$f" in
+        Modules/*|docs/*|scripts/*|public/brand/*|*.md|.env.gesoft.example)
+            while read -r l; do report "internal address" "$f:${l%%:*}"; done \
+                < <(grep -nE "(^|[^0-9.])(10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+|127\.0\.0\.1)" "$f" 2>/dev/null)
+            ;;
+    esac
+
     while read -r l; do report "assigned credential" "$f:${l%%:*}"; done \
         < <(grep -nE "(OPS_TOKEN|API_KEY|SECRET|APP_KEY|DB_PASSWORD|MAIL_PASSWORD)[A-Z_]*[=:][[:space:]]*[\"']?[A-Za-z0-9+/_-]{8,}" "$f" 2>/dev/null \
             | grep -vE "=[[:space:]]*(''|\"\"|$)|env\(|placeholder|example|your-|<.*>|SomeRandomString")

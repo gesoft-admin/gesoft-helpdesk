@@ -11,7 +11,7 @@
  *
  * Set in the FreeScout `.env` (never committed):
  *
- *   GESOFT_REMOTE_SUPPORT_API_BASE=http://192.168.122.1:8080
+ *   GESOFT_REMOTE_SUPPORT_API_BASE=http://helpdesk.internal.example:8080
  *   GESOFT_REMOTE_SUPPORT_OPS_TOKEN=<the HELPDESK_OPS_TOKEN of that backend>
  *
  * The token is an operator credential for the whole helpdesk backend. It stays

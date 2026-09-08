@@ -24,7 +24,13 @@ Thumbs.db
 /public/css/builds/
 /public/js/builds/
 /public/.well-known
-/Modules
+# Upstream ignores /Modules wholesale, because upstream distributes modules
+# separately. This fork *is* its modules, so ours are tracked by name and
+# everything else in there — anything bought, downloaded or tried out — stays
+# ignored exactly as before.
+/Modules/*
+!/Modules/GesoftRemoteSupport/
+!/Modules/GesoftBranding/
 /Modules/**/.git
 /public/modules
 /public/docs
@@ -37,3 +43,17 @@ Thumbs.db
 .phpunit.result.cache
 /.phpunit.cache
 .env.testing
+# Branding assets belong to whoever deploys this, not to the source. Only the
+# neutral placeholders and the README are committed; an operator's real marks
+# live here and never leave the machine. See TRADEMARKS.md.
+/public/brand/*
+!/public/brand/default-logo.svg
+!/public/brand/default-favicon.svg
+!/public/brand/README.md
+
+# Deployment leftovers that have no business in a public repository.
+/storage/app/backups
+*.sql
+*.sql.gz
+*.dump
+/database/*.sqlite

@@ -18,8 +18,13 @@ It talks to that service over HTTP with an operator token that never leaves the
 server — no route, view or JSON response in the module emits it. See
 [`docs/architecture/remote-support.md`](docs/architecture/remote-support.md).
 
-Imported here byte-for-byte from the installation that ran the production pilot,
-so the behaviour in this repository is the behaviour that was validated.
+Imported from the installation that ran the production pilot, so the behaviour
+in this repository is the behaviour that was validated. Two doc-comment lines
+differ, and only those: they named a libvirt bridge address, which describes
+somebody's network for no gain in a public repository, and now use names from
+the ranges reserved for documentation. Comparing the two trees with comments and
+whitespace stripped gives 12 PHP files and **zero differing code tokens** — the
+executable content is provably the same.
 
 ### `Modules/GesoftBranding`
 

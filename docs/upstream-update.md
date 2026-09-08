@@ -27,6 +27,25 @@ tree would take our modules and our `.gitignore` with it.
 
     # staging first, production after
 
+## A trap in upstream's own test workflows
+
+`.github/workflows/test.yml` and `test-pgsql.yml` run on pushes to `master` and
+are written for that line, where `vendor/` is *not* committed. Dispatched
+against anything derived from `dist` — which is what this fork is — they fail at
+`composer install`:
+
+    Could not scan for classes inside ".../vendor/rap2hpoutre/laravel-log-viewer/src/controllers"
+    which does not appear to be a file nor a folder
+
+This was measured, not assumed: the same workflow fails identically on this
+fork's untouched `dist` branch. It is a property of running a master-oriented
+workflow on a dist tree, not a sign that anything here is broken. Run those
+suites against a master-derived checkout, or read them as upstream's own signal
+rather than ours.
+
+What does run on every push here is `gesoft-secret-scan.yml`, which is this
+fork's own.
+
 Tag what you deploy, and record the tag with the deployment. That is what makes
 "which source is this instance running" answerable, which the AGPL source link
 in the footer implicitly promises.

@@ -27,6 +27,23 @@ the ranges reserved for documentation. Comparing the two trees with comments and
 whitespace stripped gives 12 PHP files and **zero differing code tokens** — the
 executable content is provably the same.
 
+### `Modules/GesoftLiveChat`
+
+Registers a web chat channel, which is all it takes to switch on FreeScout's
+own live chat: the Chats folder, Chat Mode, the chat list, the realtime refresh
+and audio cue, and the rule that a chat conversation is never answered by
+email. All of that is already in core and inert behind one filter,
+`channels.list`.
+
+In this phase the module has no customer-facing surface at all — no route, no
+widget, no table of its own. It registers two filters and one action listener,
+and carries a development-only artisan command, off unless
+`GESOFT_LIVE_CHAT_DEV_TOOLS=true`, that creates a chat conversation so the
+operator side can be validated before a widget exists.
+
+What it depends on in core, and the test that detects an upgrade breaking it,
+are in [`docs/live-chat-core-contract.md`](docs/live-chat-core-contract.md).
+
 ### `Modules/GesoftBranding`
 
 Makes the product name, logo, favicon and footer configurable from the

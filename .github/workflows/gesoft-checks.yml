@@ -39,6 +39,17 @@ jobs:
       - name: Branding filters
         run: php Modules/GesoftBranding/Tests/branding-filters.php
 
+      # Ours, and pure: given a configuration, what does the provider register.
+      - name: Live chat channel registration
+        run: php Modules/GesoftLiveChat/Tests/channel-registration.php
+
+      # Not ours at all: this reads FreeScout's own source and fails when the
+      # symbols and hooks the live chat module borrows have moved. It is the
+      # only check that can see an upstream merge break chat, because our own
+      # tests would go on passing while nothing listened to our filters.
+      - name: FreeScout core contract for live chat
+        run: php Modules/GesoftLiveChat/Tests/core-contract.php
+
       - name: Module manifests are valid JSON
         run: |
           for f in Modules/*/module.json; do

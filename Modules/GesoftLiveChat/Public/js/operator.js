@@ -127,6 +127,23 @@
         } catch (e) { /* the badge still has its poll */ }
     }
 
+    // "Are you still there?" from the conversation's More Actions menu.
+    $(document).on('click', '.gesoft-chat-nudge', function (e) {
+        e.preventDefault();
+
+        var link = $(this), id = link.data('conversation-id');
+        if (!id || link.data('busy')) { return; }
+        link.data('busy', true);
+
+        var u;
+        try { u = laroute.route('gesoftlivechat.agent.nudge', { conversation_id: id }); }
+        catch (err) { link.data('busy', false); return; }
+
+        $.post(u, { _token: $('meta[name="csrf-token"]').attr('content') })
+            .done(function () { window.location.reload(); })
+            .fail(function () { link.data('busy', false); });
+    });
+
     $(function () {
         if (started) { return; }
         started = true;

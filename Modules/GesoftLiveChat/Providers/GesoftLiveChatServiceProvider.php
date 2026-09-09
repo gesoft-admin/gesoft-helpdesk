@@ -147,6 +147,19 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
             ]);
         }, 20, 3);
 
+        // "Are you still there?" in the conversation's More Actions menu, on
+        // chat conversations only — the hook fires on every conversation, and
+        // the question is meaningless on an email one.
+        \Eventy::addAction('conversation.append_action_buttons', function ($conversation, $mailbox) {
+            if (!$conversation || !$conversation->isChat()) {
+                return;
+            }
+
+            echo \View::make('gesoftlivechat::partials/nudge_button', [
+                'conversation' => $conversation,
+            ])->render();
+        }, 30, 2);
+
         // The agent-side indicator. Core never puts a count on its own Chats
         // link and only subscribes to the chat realtime channel when the chat
         // list is already on screen, so an agent reading a ticket cannot tell
@@ -162,6 +175,18 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
 
             return $styles;
         });
+
+        // The idle sweep. Core exposes its schedule as a filter, so a module
+        // can add work to the same cron the rest of FreeScout runs on rather
+        // than needing one of its own.
+        \Eventy::addFilter('schedule', function ($schedule) {
+            $schedule->command('gesoftlivechat:sweep-chats')
+                ->everyMinute()
+                ->withoutOverlapping()
+                ->runInBackground();
+
+            return $schedule;
+        });
     }
 
     /**
@@ -175,7 +200,16 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
      */
     protected function registerCommands()
     {
-        if (!$this->app->runningInConsole() || !config('gesoftlivechat.dev_tools')) {
+        if (!$this->app->runningInConsole()) {
+            return;
+        }
+
+        // The sweep runs in production; it is the module working, not a tool.
+        $this->commands([
+            \Modules\GesoftLiveChat\Console\SweepChats::class,
+        ]);
+
+        if (!config('gesoftlivechat.dev_tools')) {
             return;
         }
 

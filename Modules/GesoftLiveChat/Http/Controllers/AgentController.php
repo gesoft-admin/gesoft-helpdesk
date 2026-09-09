@@ -5,6 +5,7 @@ namespace Modules\GesoftLiveChat\Http\Controllers;
 use App\Conversation;
 use App\Mailbox;
 use Illuminate\Http\Request;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Routing\Controller;
 
 /**
@@ -23,9 +24,51 @@ use Illuminate\Routing\Controller;
  */
 class AgentController extends Controller
 {
+    use AuthorizesRequests;
+
     public function __construct()
     {
         $this->middleware('auth');
+    }
+
+    /**
+     * Ask the customer whether they are still there, and mark the chat idle.
+     *
+     * The same two things the sweep does automatically, done deliberately and
+     * at once — an agent who can see the customer has gone quiet should not
+     * have to wait out a timer to say so.
+     *
+     * It is a real message to a real person, so it goes through the same path
+     * any agent reply does and appears in the transcript as what it is.
+     */
+    public function nudge(Request $request, $conversation_id)
+    {
+        $conversation = Conversation::findOrFail($conversation_id);
+        $this->authorize('viewCached', $conversation);
+
+        if (!$conversation->isChat()) {
+            return response()->json(['status' => 'error', 'msg' => __('Not a chat conversation.')], 400);
+        }
+
+        $text = (string) config('gesoftlivechat.idle_prompt');
+
+        \App\Thread::createExtended(
+            [
+                'type'               => \App\Thread::TYPE_MESSAGE,
+                'body'               => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                'state'              => \App\Thread::STATE_PUBLISHED,
+                'created_by_user_id' => auth()->id(),
+            ],
+            $conversation,
+            $conversation->customer
+        );
+
+        // Marked here rather than left to the sweep: the agent has just said
+        // the ball is in the customer's court, and the list should show that
+        // now, not in five minutes.
+        $conversation->changeStatus(Conversation::STATUS_PENDING, auth()->user());
+
+        return response()->json(['status' => 'success']);
     }
 
     /**

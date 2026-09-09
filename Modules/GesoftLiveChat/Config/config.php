@@ -77,4 +77,32 @@ return [
      * silently revive a conversation the agent considered finished.
      */
     'reopen_window' => env('GESOFT_LIVE_CHAT_REOPEN_WINDOW', 120),
+
+    /**
+     * How long after **the agent's last reply** a chat with no customer answer
+     * is marked idle, in seconds. Zero disables it.
+     *
+     * The clock deliberately reads the agent's message, never the customer's.
+     * A conversation where the customer spoke last is one *we* have not
+     * answered, and an operator who is not paying attention must never be able
+     * to hang up on a customer who is waiting. That case has no timer.
+     */
+    'idle_after' => env('GESOFT_LIVE_CHAT_IDLE_AFTER', 300),
+
+    /**
+     * How much longer after being marked idle a chat is closed automatically,
+     * in seconds. Zero leaves idle chats open for an agent to close by hand.
+     *
+     * Two stages rather than one because closing outright the first time a
+     * customer pauses loses a conversation somebody may still be in the middle
+     * of. The first stage only marks; this one ends it, with a line item in the
+     * conversation saying so.
+     */
+    'close_after' => env('GESOFT_LIVE_CHAT_CLOSE_AFTER', 900),
+
+    /**
+     * What the "still there?" button sends. It is a real message to the
+     * customer, so it is worded as one.
+     */
+    'idle_prompt' => env('GESOFT_LIVE_CHAT_IDLE_PROMPT', 'Are you still there?'),
 ];

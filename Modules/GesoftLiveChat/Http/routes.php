@@ -51,4 +51,9 @@ Route::group([
         'uses'    => 'AgentController@chats',
         'laroute' => true,
     ])->name('gesoftlivechat.agent.chats');
+
+    Route::post('/gesoft-live-chat/agent/{conversation_id}/nudge', [
+        'uses'    => 'AgentController@nudge',
+        'laroute' => true,
+    ])->name('gesoftlivechat.agent.nudge');
 });

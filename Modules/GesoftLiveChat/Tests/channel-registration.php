@@ -120,17 +120,28 @@ namespace {
     check('  customer id', $ctx['customer_id'] ?? null, 7);
     check('  reply count', $ctx['replies'] ?? null, 2);
 
-    // The development command must not exist unless somebody turned it on, and
-    // must never be reachable outside the CLI.
+    // The idle sweep is the module working and runs everywhere. The
+    // conversation maker is a tool and must not exist unless somebody turned it
+    // on. Neither is ever registered outside the console.
     boot(true);
-    check('dev command absent when the flag is off', $REGISTERED_COMMANDS, []);
+    check('sweep registered with the dev flag off', count($REGISTERED_COMMANDS), 1);
+    check('  and it is the sweep', strpos($REGISTERED_COMMANDS[0] ?? '', 'SweepChats') !== false, true);
 
     $CONFIG['gesoftlivechat.dev_tools'] = true;
     boot(true);
-    check('dev command present when the flag is on', count($REGISTERED_COMMANDS), 1);
+    check('dev tool added when the flag is on', count($REGISTERED_COMMANDS), 1);
+    check('  and it is the maker', strpos($REGISTERED_COMMANDS[0] ?? '', 'MakeChatConversation') !== false, true);
     boot(false);
-    check('dev command absent outside the console', $REGISTERED_COMMANDS, []);
+    check('nothing registered outside the console', $REGISTERED_COMMANDS, []);
     $CONFIG['gesoftlivechat.dev_tools'] = false;
+
+    // The sweep has to reach core's own cron, or it never runs.
+    boot();
+    $sched = new class { public $added = []; public function command($c) { $this->added[] = $c; return $this; }
+        public function everyMinute() { return $this; } public function withoutOverlapping() { return $this; }
+        public function runInBackground() { return $this; } };
+    \Eventy::filter('schedule', $sched);
+    check('sweep added to the schedule', $sched->added, ['gesoftlivechat:sweep-chats']);
 
     printf("\n%d passed, %d failed\n", $pass, $fail);
     exit($fail ? 1 : 0);

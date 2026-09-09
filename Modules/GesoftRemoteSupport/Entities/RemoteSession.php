@@ -103,10 +103,28 @@ class RemoteSession extends Model
         return 'FreeScout #'.$conversation->number.' (conv '.$conversation->id.')';
     }
 
-    /** The link the agent sends the customer, or null before there is a code. */
+    /**
+     * The link the agent sends the customer, or null when there is nothing
+     * worth sending.
+     *
+     * Gated on the session still being active, not merely on a code existing.
+     * `markClosed()` deliberately keeps the code on the row -- it is the record
+     * of what this conversation was given access to -- but a closed or expired
+     * session's `/d/{code}` serves nothing, so rendering it leaves a dead link
+     * on screen that still looks live, still copies, and sits next to a
+     * "Closed" label that nobody reads because the link is louder.
+     *
+     * It also made the recovery look wrong: with a stale link showing, pressing
+     * Start again reads as a mistake rather than as the way to get a new one.
+     * Reported from a real session on 2026-09-09.
+     *
+     * The code itself stays visible in its own row. That is the record, and it
+     * is unambiguous next to the status; the link is the thing that invites a
+     * click.
+     */
     public function customerUrl()
     {
-        if (!$this->code) {
+        if (!$this->code || !$this->isActive()) {
             return null;
         }
 

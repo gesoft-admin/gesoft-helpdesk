@@ -56,4 +56,25 @@ return [
      * chats will quietly land wherever `id` happens to order first.
      */
     'mailbox_id' => env('GESOFT_LIVE_CHAT_MAILBOX_ID', null),
+
+    /**
+     * How long after an agent closes a chat the visitor may still write into
+     * it, in seconds. Zero disables it.
+     *
+     * This exists because "the agent closed it" and "the visitor wandered off"
+     * look identical from here and are not the same thing. A visitor who is
+     * still typing when the agent presses Close should land in the
+     * conversation they were having, not open a second one the agent then has
+     * to read from the beginning.
+     *
+     * Live Helper Chat settled the same question with two settings — how many
+     * seconds a customer has to reopen a closed chat, and whether it reopens
+     * as new or as active. This is the same idea with one number: inside the
+     * window the chat comes back as active, outside it a new one begins.
+     *
+     * Two minutes is short on purpose. Long enough for a message already being
+     * typed, short enough that a customer returning after lunch does not
+     * silently revive a conversation the agent considered finished.
+     */
+    'reopen_window' => env('GESOFT_LIVE_CHAT_REOPEN_WINDOW', 120),
 ];

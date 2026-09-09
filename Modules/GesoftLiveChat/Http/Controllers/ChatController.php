@@ -247,10 +247,40 @@ class ChatController extends Controller
             return null;
         }
 
-        return Conversation::where('customer_id', $customer->id)
+        $open = Conversation::where('customer_id', $customer->id)
             ->where('type', Conversation::TYPE_CHAT)
             ->where('state', Conversation::STATE_PUBLISHED)
             ->whereIn('status', [Conversation::STATUS_ACTIVE, Conversation::STATUS_PENDING])
+            ->orderBy('id', 'desc')
+            ->first();
+
+        if ($open) {
+            return $open;
+        }
+
+        return $this->recentlyClosed($customer);
+    }
+
+    /**
+     * A chat closed moments ago, which the visitor may still be writing into.
+     *
+     * "The agent closed it" and "the visitor wandered off" are indistinguishable
+     * from this side, and treating every late message as a new conversation
+     * makes the agent read the same problem twice. Inside the window the chat
+     * comes back; outside it, a new one begins and the bubble says so.
+     */
+    protected function recentlyClosed(Customer $customer)
+    {
+        $window = (int) config('gesoftlivechat.reopen_window');
+        if ($window <= 0) {
+            return null;
+        }
+
+        return Conversation::where('customer_id', $customer->id)
+            ->where('type', Conversation::TYPE_CHAT)
+            ->where('state', Conversation::STATE_PUBLISHED)
+            ->where('status', Conversation::STATUS_CLOSED)
+            ->where('closed_at', '>=', now()->subSeconds($window))
             ->orderBy('id', 'desc')
             ->first();
     }

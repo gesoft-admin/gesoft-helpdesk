@@ -147,6 +147,33 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
             ]);
         }, 20, 3);
 
+        // The customer ran the tool. Say so in the chat, so the agent sees it
+        // wherever they are and the customer sees that we noticed — they have
+        // just done something and been met with silence otherwise.
+        \Eventy::addAction('gesoft.remote_support.ready', function ($conversation, $session) {
+            if (!$conversation || !$conversation->isChat()) {
+                return;
+            }
+
+            $body = __('Thank you — we can see your computer now. Please leave the support window open.');
+
+            \App\Thread::createExtended(
+                [
+                    'type'               => \App\Thread::TYPE_MESSAGE,
+                    'body'               => htmlspecialchars($body, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                    'state'              => \App\Thread::STATE_PUBLISHED,
+                    'created_by_user_id' => $session->started_by_user_id ?? null,
+                ],
+                $conversation,
+                $conversation->customer
+            );
+
+            \Log::info('GesoftLiveChat: remote client reported an ID', [
+                'conversation_id' => $conversation->id,
+                'remote_id'       => $session->remote_id ?? null,
+            ]);
+        }, 20, 2);
+
         // "Are you still there?" in the conversation's More Actions menu, on
         // chat conversations only — the hook fires on every conversation, and
         // the question is meaningless on an email one.

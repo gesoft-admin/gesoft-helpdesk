@@ -100,17 +100,37 @@ class AgentController extends Controller
             $query->where('user_id', $user->id);
         }
 
-        $latest = (clone $query)->orderBy('id', 'desc')->first();
+        $latest = (clone $query)->orderBy('last_reply_at', 'desc')->first();
+
+        // The signal the browser watches has to change on every *message*, not
+        // every conversation. Watching the conversation id meant a customer
+        // replying in a chat that already existed changed nothing at all, so
+        // nothing was ever announced for it — and a first message only
+        // surfaced on the next slow poll, which reads as arriving one message
+        // late.
+        //
+        // Customer messages only. An agent does not need telling about their
+        // own reply.
+        $conversation_ids = (clone $query)->pluck('id');
+        $latest_message = \App\Thread::whereIn('conversation_id', $conversation_ids)
+            ->where('type', \App\Thread::TYPE_CUSTOMER)
+            ->where('state', \App\Thread::STATE_PUBLISHED)
+            ->orderBy('id', 'desc')
+            ->first();
+
+        $from = null;
+        if ($latest_message) {
+            $from = Conversation::find($latest_message->conversation_id);
+        }
 
         return response()->json([
             'status'      => 'success',
             'count'       => $query->count(),
-            // The newest chat's id and the newest thread in it: the first tells
-            // the browser a *conversation* is new, the second that somebody has
-            // said something in one it already knew about.
-            'latest_id'   => $latest->id ?? 0,
+            // Changes whenever a customer says anything, in any visible chat.
+            'latest_id'   => $latest_message->id ?? 0,
             'latest_at'   => $latest && $latest->last_reply_at ? $latest->last_reply_at->timestamp : 0,
-            'latest_name' => $latest && $latest->customer ? $latest->customer->getFullName(true) : '',
+            'latest_name' => $from && $from->customer ? $from->customer->getFullName(true) : '',
+            'latest_conversation_id' => $latest_message->conversation_id ?? 0,
             // Where the header indicator should send an agent who clicks it.
             // Pages outside a mailbox have no mailbox of their own, so the
             // answer travels with the count rather than being guessed in the

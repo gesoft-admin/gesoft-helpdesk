@@ -71,6 +71,25 @@ class GesoftRemoteSupportServiceProvider extends ServiceProvider
 
             return $styles;
         });
+
+        // Until this ran, the module only learned anything while an agent had
+        // the conversation open: the panel's poll was the only thing that ever
+        // asked the backend. An agent who sent the link and moved on never
+        // found out the customer had started the tool.
+        \Eventy::addFilter('schedule', function ($schedule) {
+            $schedule->command('gesoftremotesupport:poll-sessions')
+                ->everyMinute()
+                ->withoutOverlapping()
+                ->runInBackground();
+
+            return $schedule;
+        });
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                \Modules\GesoftRemoteSupport\Console\PollSessions::class,
+            ]);
+        }
     }
 
     /**

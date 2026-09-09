@@ -67,6 +67,8 @@
         '.msg { max-width: 82%; padding: 8px 11px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }',
         '.msg.visitor { align-self: flex-end; background: #0d5652; color: #fff; border-bottom-right-radius: 3px; }',
         '.msg.agent { align-self: flex-start; background: #fff; border: 1px solid #dde5e3; border-bottom-left-radius: 3px; }',
+        '.msg a { color: inherit; text-decoration: underline; }',
+        '.msg.agent a { color: #0d5652; }',
         '.note { align-self: center; font-size: 12px; color: #5b696c; text-align: center; }',
         '.form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e2e8e7; background: #fff; }',
         '.form textarea {',
@@ -114,12 +116,36 @@
 
     // ------------------------------------------------------------- rendering
 
-    // textContent throughout: the server already sends plain text, and this is
-    // the second place that has to be true rather than assumed.
+    // The server sends plain text, and this stays the second place that is true
+    // rather than assumed: every piece of the message is written with
+    // textContent, including the label of a link. Only the href is built, and
+    // only from something that already matched http(s).
+    //
+    // Links are made clickable because the support link arrives this way and a
+    // customer being told to select-and-copy a URL out of a chat bubble is a
+    // support call that fails on the last step.
+    var URL_RE = /(https?:\/\/[^\s<>"']+)/g;
+
     function add(from, body) {
         var el = document.createElement('div');
         el.className = 'msg ' + from;
-        el.textContent = body;
+
+        var parts = String(body).split(URL_RE);
+        for (var i = 0; i < parts.length; i++) {
+            if (!parts[i]) { continue; }
+
+            if (i % 2 === 1) {
+                var a = document.createElement('a');
+                a.href = parts[i];
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.textContent = parts[i];
+                el.appendChild(a);
+            } else {
+                el.appendChild(document.createTextNode(parts[i]));
+            }
+        }
+
         log.appendChild(el);
         log.scrollTop = log.scrollHeight;
     }

@@ -22,10 +22,11 @@
 (function ($) {
     'use strict';
 
-    // Slow, because it is only the floor: the realtime subscription below
-    // updates within a second when it is available, and this is what keeps the
-    // badge honest on pages where it is not.
-    var POLL_MS = 20000;
+    // The floor, not the mechanism: the realtime subscription below answers
+    // within a second. Ten rather than twenty because this is how long an agent
+    // can be unaware that somebody is waiting when the subscription is not
+    // available, and twenty seconds of that is too long.
+    var POLL_MS = 10000;
 
     var url = null;
     var known_latest = null;
@@ -145,21 +146,33 @@
                 announce(res.latest_name);
             }
             known_latest = res.latest_id;
+
+            // Pages outside a mailbox have no mailbox id of their own, so the
+            // subscription could not be made there and the badge fell back to
+            // the poll — which is what made a new message look like it arrived
+            // one message late. The endpoint knows the mailbox; use it.
+            if (res.mailbox_id) { subscribe(3, res.mailbox_id); }
         });
     }
 
     // Ride core's existing Polycast connection rather than opening another.
     // `poly` is a file-scope global in main.js and is created on ready, so this
     // waits for it instead of assuming an order between two scripts.
-    function subscribe(attempts) {
+    var subscribed = {};
+
+    function subscribe(attempts, mailbox_id) {
         if (typeof poly === 'undefined' || !poly || !poly.subscribe) {
-            if (attempts > 0) { setTimeout(function () { subscribe(attempts - 1); }, 1000); }
+            if (attempts > 0) {
+                setTimeout(function () { subscribe(attempts - 1, mailbox_id); }, 1000);
+            }
             return;
         }
 
-        var mailbox_id = null;
-        try { mailbox_id = getGlobalAttr('mailbox_id'); } catch (e) {}
-        if (!mailbox_id) { return; }
+        if (!mailbox_id) {
+            try { mailbox_id = getGlobalAttr('mailbox_id'); } catch (e) {}
+        }
+        if (!mailbox_id || subscribed[mailbox_id]) { return; }
+        subscribed[mailbox_id] = true;
 
         try {
             var channel = poly.subscribe('chat.' + mailbox_id);

@@ -111,6 +111,11 @@ class AgentController extends Controller
             'latest_id'   => $latest->id ?? 0,
             'latest_at'   => $latest && $latest->last_reply_at ? $latest->last_reply_at->timestamp : 0,
             'latest_name' => $latest && $latest->customer ? $latest->customer->getFullName(true) : '',
+            // Where the header indicator should send an agent who clicks it.
+            // Pages outside a mailbox have no mailbox of their own, so the
+            // answer travels with the count rather than being guessed in the
+            // browser.
+            'mailbox_id'  => $latest->mailbox_id ?? ($mailbox_ids->first() ?? 0),
         ]);
     }
 }

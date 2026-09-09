@@ -45,6 +45,38 @@
         }).first();
     }
 
+    // The sidebar exists only on mailbox pages. This one sits next to the bell
+    // in the header, which is on every page of the application, so an agent in
+    // settings or on the dashboard can still see that somebody is waiting.
+    function paintHeader(count, mailbox_id) {
+        var bar = $('ul.navbar-nav.navbar-right').first();
+        if (!bar.length) { return; }
+
+        var item = bar.find('.gesoft-chat-header');
+
+        if (!count) {
+            item.remove();
+            return;
+        }
+
+        if (!item.length) {
+            item = $(
+                '<li class="dropdown gesoft-chat-header">' +
+                '  <a href="#" class="dropdown-toggle-icon" title="Chaturi active">' +
+                '    <i class="glyphicon glyphicon-comment"></i>' +
+                '    <small class="gesoft-chat-header-count"></small>' +
+                '  </a>' +
+                '</li>'
+            );
+            bar.prepend(item);
+        }
+
+        item.find('.gesoft-chat-header-count').text(count);
+        if (mailbox_id) {
+            item.find('a').attr('href', Vars.public_url + '/mailbox/' + mailbox_id + '/chats');
+        }
+    }
+
     function paint(count) {
         var link = chatsLink();
         if (!link.length) { return; }
@@ -71,6 +103,15 @@
             try { playAudioNotification(null); } catch (e) {}
         }
 
+        // In the page as well as out of it. A browser notification needs a
+        // permission the agent may never have granted, and a chat nobody is
+        // told about is the failure this whole file exists to prevent.
+        if (typeof showFloatingAlert === 'function') {
+            try {
+                showFloatingAlert('success', name ? 'Chat nou: ' + name : 'Chat nou');
+            } catch (e) {}
+        }
+
         if (typeof Push === 'undefined' || !Push.Permission.has()) { return; }
 
         try {
@@ -90,6 +131,7 @@
             if (!res || res.status !== 'success') { return; }
 
             paint(res.count);
+            paintHeader(res.count, res.mailbox_id);
 
             // First answer of the page load only establishes what is already
             // there. Announcing then would greet an agent with a notification

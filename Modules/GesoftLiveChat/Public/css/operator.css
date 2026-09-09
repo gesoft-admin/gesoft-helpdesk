@@ -35,3 +35,26 @@
 @media (prefers-reduced-motion: reduce) {
     #folders li.gesoft-chats-waiting > a .gesoft-chat-count { animation: none; }
 }
+
+/*
+ * The header indicator, beside the notification bell. The sidebar only exists
+ * on mailbox pages; this one is on every page, which is the whole reason it
+ * exists.
+ */
+.gesoft-chat-header > a {
+    position: relative;
+}
+
+.gesoft-chat-header .gesoft-chat-header-count {
+    position: absolute;
+    top: 6px;
+    right: 2px;
+    min-width: 15px;
+    padding: 0 3px;
+    border-radius: 8px;
+    background: #0d5652;
+    color: #fff;
+    font-size: 10px;
+    line-height: 15px;
+    text-align: center;
+}

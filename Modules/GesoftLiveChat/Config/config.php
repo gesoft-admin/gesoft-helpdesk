@@ -38,4 +38,22 @@ return [
      * that even the CLI surface is absent unless somebody asked for it.
      */
     'dev_tools' => env('GESOFT_LIVE_CHAT_DEV_TOOLS', false),
+
+    /**
+     * Origins allowed to talk to the visitor endpoints, comma separated and
+     * with the scheme: `https://example.com,https://www.example.com`.
+     *
+     * Empty means same-origin only, which is the safe default and all the demo
+     * page needs. There is deliberately no wildcard: `*` here would let any
+     * site on the internet open conversations in this helpdesk out of a
+     * visitor's browser.
+     */
+    'origins' => env('GESOFT_LIVE_CHAT_ORIGINS', ''),
+
+    /**
+     * Which mailbox receives chats. Empty takes the first one, which is right
+     * for a single-mailbox installation; set it as soon as there are two, or
+     * chats will quietly land wherever `id` happens to order first.
+     */
+    'mailbox_id' => env('GESOFT_LIVE_CHAT_MAILBOX_ID', null),
 ];

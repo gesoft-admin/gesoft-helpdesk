@@ -1,20 +1,26 @@
 {
     "name": "GesoftLiveChat",
     "alias": "gesoftlivechat",
-    "description": "Registers a web chat channel so FreeScout's own chat conversation, operator UI and realtime become available. No customer-facing surface in this phase.",
+    "description": "Web chat channel for FreeScout: registers the channel so core's own chat engine switches on, and serves the visitor-facing bubble and its transport.",
     "version": "0.1.0",
     "detailsUrl": "",
     "author": "Gesoft",
     "authorUrl": "",
     "requiredAppVersion": "1.8.0",
     "license": "AGPL-3.0",
-    "keywords": ["chat", "channel", "livechat"],
+    "keywords": [
+        "chat",
+        "channel",
+        "livechat"
+    ],
     "active": 0,
     "order": 0,
     "providers": [
         "Modules\\GesoftLiveChat\\Providers\\GesoftLiveChatServiceProvider"
     ],
     "aliases": {},
-    "files": [],
+    "files": [
+        "start.php"
+    ],
     "requires": []
 }

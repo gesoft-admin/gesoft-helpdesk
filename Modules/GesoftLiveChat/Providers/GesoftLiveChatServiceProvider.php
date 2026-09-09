@@ -33,6 +33,7 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
     public function boot()
     {
         $this->registerConfig();
+        $this->registerViews();
         $this->hooks();
         $this->registerCommands();
     }
@@ -119,6 +120,18 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
         $this->commands([
             \Modules\GesoftLiveChat\Console\MakeChatConversation::class,
         ]);
+    }
+
+    public function registerViews()
+    {
+        $view_path = resource_path('views/modules/gesoftlivechat');
+        $source = __DIR__.'/../Resources/views';
+
+        $this->publishes([$source => $view_path], 'views');
+
+        $this->loadViewsFrom(array_merge(array_map(function ($path) {
+            return $path.'/modules/gesoftlivechat';
+        }, \Config::get('view.paths')), [$source]), 'gesoftlivechat');
     }
 
     protected function registerConfig()

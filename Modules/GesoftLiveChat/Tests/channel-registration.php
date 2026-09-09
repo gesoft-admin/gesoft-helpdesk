@@ -21,6 +21,7 @@ namespace Illuminate\Support {
         public function publishes($paths, $group = null) {}
         public function mergeConfigFrom($path, $key) {}
         public function commands($commands) { global $REGISTERED_COMMANDS; $REGISTERED_COMMANDS = $commands; }
+        public function loadViewsFrom($paths, $namespace) {}
     }
 }
 
@@ -33,6 +34,8 @@ namespace {
     function __($s, $r = []) { return $s; }
     function env($k, $d = null) { return $d; }
     function config_path($p = '') { return '/tmp/config/'.$p; }
+    function resource_path($p = '') { return '/tmp/resources/'.$p; }
+    class Config { public static function get($key, $default = null) { return $key === 'view.paths' ? ['/tmp/views'] : $default; } }
     function now() { return new class { public function toRfc3339String() { return '2026-09-09T00:00:00+00:00'; } }; }
 
     class EventyStub {

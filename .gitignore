@@ -1,3 +1,8 @@
+# Modified by Gesoft: narrowed /Modules so this fork's own modules are tracked,
+# and added rules keeping env files, credentials, dumps and brand assets out of
+# a public repository. This is the only upstream file this fork modifies; see
+# CHANGES-GESOFT.md. (AGPL-3.0 §5(a))
+
 /node_modules
 /public/hot
 /public/storage

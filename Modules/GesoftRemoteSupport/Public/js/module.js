@@ -44,6 +44,20 @@
         p.find('.gesoft-rs-code').text(state.code);
         p.find('.gesoft-rs-remote-id').text(state.remote_id);
 
+        // Shown only once the backend has an answer. Before an ID is reported
+        // there is nothing to have checked, and an empty label would read as a
+        // failed check rather than as one that has not happened.
+        var regRow = p.find('.gesoft-rs-registration-row');
+        if (state.registration_label) {
+            regRow.find('.gesoft-rs-registration')
+                .removeClass('label-success label-danger label-default')
+                .addClass(state.registration_class)
+                .text(state.registration_label);
+            regRow.show();
+        } else {
+            regRow.hide();
+        }
+
         var linkRow = p.find('.gesoft-rs-link-row');
         if (state.customer_url) {
             linkRow.find('.gesoft-rs-link').attr('href', state.customer_url).text(state.customer_url);

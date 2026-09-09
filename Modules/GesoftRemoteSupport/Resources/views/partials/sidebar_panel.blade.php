@@ -44,6 +44,17 @@
                 <span class="gesoft-rs-key">{{ __('RustDesk ID') }}</span>
                 <span class="gesoft-rs-val gesoft-rs-remote-id">{{ $session->remote_id ?: '—' }}</span>
             </li>
+            {{--
+                An ID on its own never meant the client reached us: one that
+                found another rendezvous server reports an ID too. This row is
+                the backend's answer to that, checked against hbbs, and it is
+                shown next to the ID rather than folded into the status so the
+                two claims stay separable.
+            --}}
+            <li class="gesoft-rs-registration-row" @if (!$session->registrationLabel()) style="display:none" @endif>
+                <span class="gesoft-rs-key">{{ __('Registration') }}</span>
+                <span class="label {{ $session->registrationClass() }} gesoft-rs-registration">{{ $session->registrationLabel() }}</span>
+            </li>
             <li class="gesoft-rs-expires-row" @if (!$session->expires_at) style="display:none" @endif>
                 <span class="gesoft-rs-key">{{ __('Expires') }}</span>
                 <span class="gesoft-rs-val gesoft-rs-expires">{{ $session->expires_at ? $session->expires_at->toDateTimeString() : '' }}</span>

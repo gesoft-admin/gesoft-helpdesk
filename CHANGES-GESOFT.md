@@ -12,7 +12,8 @@ not have covered.
 Starts and tracks a remote-support session from inside a conversation. The agent
 presses **Start Remote Support** in the conversation sidebar; the module asks a
 separate service (`helpdesk-rust`) for a session, shows the support code and
-customer link, polls for the RustDesk ID, and closes the session on demand.
+customer link, polls for the RustDesk ID and for whether that peer actually
+registered with our own rendezvous server, and closes the session on demand.
 
 It talks to that service over HTTP with an operator token that never leaves the
 server — no route, view or JSON response in the module emits it. See

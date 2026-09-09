@@ -37,11 +37,25 @@ class RemoteSession extends Model
     const REMOTE_CLOSED    = 'CLOSED';
     const REMOTE_EXPIRED   = 'EXPIRED';
 
+    /**
+     * What the backend says about the peer whose ID we were shown, verbatim.
+     *
+     * "ID available" is all `/api/ready` ever supported: a client that found
+     * somebody else's rendezvous server reports an ID too. helpdesk-rust now
+     * compares hbbs's key for that ID against the one it held before the
+     * session was approved and returns a verdict, which the panel shows
+     * beside the ID instead of leaving the agent to assume.
+     */
+    const REG_REGISTERED     = 'REGISTERED';
+    const REG_NOT_REGISTERED = 'NOT_REGISTERED';
+    const REG_UNPROVEN       = 'UNPROVEN';
+    const REG_UNAVAILABLE    = 'UNAVAILABLE';
+
     protected $table = 'gesoft_remote_sessions';
 
     protected $fillable = [
         'conversation_id', 'status', 'helpdesk_session_id', 'code', 'remote_status',
-        'remote_id', 'started_by_user_id', 'started_at', 'expires_at', 'synced_at',
+        'remote_id', 'registration', 'started_by_user_id', 'started_at', 'expires_at', 'synced_at',
         'closed_at',
     ];
 
@@ -147,6 +161,36 @@ class RemoteSession extends Model
      * available" is READY, which is exactly that and no more — the ID exists,
      * whether the peer is reachable is a question this module cannot answer.
      */
+    /**
+     * How the registration verdict reads in the panel, or an empty string when
+     * there is nothing to say yet.
+     *
+     * Four answers, and only one of them is proof. `UNPROVEN` is deliberately
+     * not dressed up as a failure: a client whose config survived a failed
+     * teardown reuses its key and looks exactly like one that never arrived,
+     * so the honest label is that nothing could be shown either way.
+     */
+    public function registrationLabel()
+    {
+        switch ($this->registration) {
+            case self::REG_REGISTERED:     return __('Registered with our server');
+            case self::REG_NOT_REGISTERED: return __('Not on our server');
+            case self::REG_UNPROVEN:       return __('Could not be confirmed');
+            case self::REG_UNAVAILABLE:    return __('Check unavailable');
+            default:                       return '';
+        }
+    }
+
+    /** Bootstrap label class for the verdict. Only proof is green. */
+    public function registrationClass()
+    {
+        switch ($this->registration) {
+            case self::REG_REGISTERED:     return 'label-success';
+            case self::REG_NOT_REGISTERED: return 'label-danger';
+            default:                       return 'label-default';
+        }
+    }
+
     public function statusLabel()
     {
         if ($this->isStarting()) {
@@ -193,7 +237,7 @@ class RemoteSession extends Model
      */
     public function applyRemoteRow(array $row)
     {
-        $before = [$this->remote_status, $this->remote_id, (string) $this->expires_at];
+        $before = [$this->remote_status, $this->remote_id, $this->registration, (string) $this->expires_at];
 
         if (!empty($row['status'])) {
             $this->remote_status = $row['status'];
@@ -202,6 +246,13 @@ class RemoteSession extends Model
         // and a later poll must not blank an ID we already showed the agent.
         if (!empty($row['rustdesk_id'])) {
             $this->remote_id = $row['rustdesk_id'];
+        }
+        // Same rule, same reason: the verdict is decided once, when the ID
+        // arrives, and the backend does not recompute it afterwards. A later
+        // poll blanking it would make a session look like it had changed its
+        // mind about evidence that no longer exists to re-check.
+        if (!empty($row['registration'])) {
+            $this->registration = $row['registration'];
         }
         if (!empty($row['expires_at'])) {
             try {
@@ -213,7 +264,7 @@ class RemoteSession extends Model
 
         $this->synced_at = now();
 
-        return $before !== [$this->remote_status, $this->remote_id, (string) $this->expires_at];
+        return $before !== [$this->remote_status, $this->remote_id, $this->registration, (string) $this->expires_at];
     }
 
     /** Mark the session finished locally. The backend owns the real cleanup. */
@@ -244,6 +295,9 @@ class RemoteSession extends Model
             'code'          => $this->code ?: '—',
             'customer_url'  => $this->customerUrl(),
             'remote_id'     => $this->remote_id ?: '—',
+            'registration'       => $this->registration ?: '',
+            'registration_label' => $this->registrationLabel(),
+            'registration_class' => $this->registrationClass(),
             'expires_at'    => $this->expires_at ? $this->expires_at->toDateTimeString() : '',
             'is_active'     => $this->isActive(),
             'is_busy'       => $this->isStarting(),

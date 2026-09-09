@@ -23,7 +23,9 @@ Only the FreeScout module. It:
 - creates a session for a conversation and stores the session id, code, customer
   link and expiry in its own table;
 - polls for status until the customer's client reports its RustDesk ID;
-- shows the agent the code, the link and the ID;
+- shows the agent the code, the link, the ID, and the backend's verdict on
+  whether that ID belongs to a peer that registered with our own hbbs — an ID
+  on its own never meant the client reached us;
 - closes the session.
 
 ## What does not live here

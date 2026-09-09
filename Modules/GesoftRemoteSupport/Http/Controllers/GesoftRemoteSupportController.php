@@ -114,6 +114,11 @@ class GesoftRemoteSupportController extends Controller
             // Nothing has reported an ID yet — the customer has not run
             // anything. The status poll fills this in when they do.
             $session->remote_id           = null;
+            // And no ID means nothing to have checked against hbbs yet. A
+            // verdict left over from the previous session on this conversation
+            // would sit beside the new session's blank ID as if it described
+            // it.
+            $session->registration        = null;
             $session->expires_at          = $this->parseTime(
                 isset($created['expires_at']) ? $created['expires_at'] : null
             );
@@ -262,6 +267,7 @@ class GesoftRemoteSupportController extends Controller
                 $session->code                = null;
                 $session->remote_status       = null;
                 $session->remote_id           = null;
+                $session->registration        = null;
                 $session->started_by_user_id  = $user->id;
                 $session->started_at          = now();
                 $session->expires_at          = null;

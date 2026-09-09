@@ -1,0 +1,54 @@
+# This fork's own checks, on every push and pull request.
+#
+# Separate from the upstream workflows in this directory, and named so it is
+# obvious which are ours: an upstream merge should never quietly take these
+# away. The upstream suites (test.yml, test-pgsql.yml, phpcs.yml) cover
+# FreeScout; nothing in them knows our modules exist.
+name: Gesoft checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The secret scan compares against the fork baseline, so it needs the
+          # history that reaches it. A shallow checkout would find no merge base
+          # and silently scan nothing.
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Secret scan
+        run: ./scripts/secret-scan.sh --all
+
+      # Pure: given a configuration, what do the four branding filters return.
+      # It stubs the Laravel pieces rather than booting the framework, so it
+      # runs in a second and a failure is a failure in our code.
+      - name: Branding filters
+        run: php Modules/GesoftBranding/Tests/branding-filters.php
+
+      - name: Module manifests are valid JSON
+        run: |
+          for f in Modules/*/module.json; do
+            php -r 'json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR); echo "ok  $argv[1]\n";' "$f"
+          done
+
+      - name: Module PHP parses
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            php -l "$f" >/dev/null || { echo "syntax error: $f"; fail=1; }
+          done < <(find Modules -name '*.php')
+          exit $fail

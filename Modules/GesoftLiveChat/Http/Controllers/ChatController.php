@@ -271,27 +271,45 @@ class ChatController extends Controller
     }
 
     /**
-     * A chat closed moments ago, which the visitor may still be writing into.
+     * A closed chat the visitor may still write into.
      *
-     * "The agent closed it" and "the visitor wandered off" are indistinguishable
-     * from this side, and treating every late message as a new conversation
-     * makes the agent read the same problem twice. Inside the window the chat
-     * comes back; outside it, a new one begins and the bubble says so.
+     * **FreeScout already owns this decision**, and this module was answering
+     * it on its own before anybody read the setting. Each mailbox has "Start a
+     * new conversation when receiving a reply to the closed / deleted Chat
+     * conversation", and `Conversation::chatShouldStartNew()` is what reads it.
+     * Unticked — the default — a returning customer belongs in the same
+     * conversation however long they were gone, which is also what FreeScout's
+     * own chat module documents.
+     *
+     * So the setting decides, and our window only refines the case where an
+     * operator has asked for new conversations: even then, "the agent closed it
+     * while the visitor was typing" is not a new problem, and a message two
+     * minutes later belongs where the rest of it is.
      */
     protected function recentlyClosed(Customer $customer)
     {
-        $window = (int) config('gesoftlivechat.reopen_window');
-        if ($window <= 0) {
-            return null;
-        }
-
-        return Conversation::where('customer_id', $customer->id)
+        $closed = Conversation::where('customer_id', $customer->id)
             ->where('type', Conversation::TYPE_CHAT)
             ->where('state', Conversation::STATE_PUBLISHED)
             ->where('status', Conversation::STATUS_CLOSED)
-            ->where('closed_at', '>=', now()->subSeconds($window))
             ->orderBy('id', 'desc')
             ->first();
+
+        if (!$closed) {
+            return null;
+        }
+
+        // The mailbox says a reply to a closed chat starts a fresh one. Honour
+        // that, except for the moments right after closing.
+        if ($closed->chatShouldStartNew()) {
+            $window = (int) config('gesoftlivechat.reopen_window');
+
+            if ($window <= 0 || !$closed->closed_at || $closed->closed_at->lt(now()->subSeconds($window))) {
+                return null;
+            }
+        }
+
+        return $closed;
     }
 
     /**

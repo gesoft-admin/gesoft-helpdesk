@@ -67,10 +67,15 @@ return [
      * conversation they were having, not open a second one the agent then has
      * to read from the beginning.
      *
+     * **Only applies when the mailbox asks for new conversations.** FreeScout
+     * owns the larger decision: each mailbox has "Start a new conversation when
+     * receiving a reply to the closed / deleted Chat conversation", and with it
+     * unticked — the default — a returning customer always lands in the same
+     * conversation and this number is never consulted.
+     *
      * Live Helper Chat settled the same question with two settings — how many
      * seconds a customer has to reopen a closed chat, and whether it reopens
-     * as new or as active. This is the same idea with one number: inside the
-     * window the chat comes back as active, outside it a new one begins.
+     * as new or as active.
      *
      * Two minutes is short on purpose. Long enough for a message already being
      * typed, short enough that a customer returning after lunch does not

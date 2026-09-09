@@ -74,11 +74,20 @@ class ChatController extends Controller
             return $this->send($request);
         }
 
-        $token = bin2hex(random_bytes(16));
+        $email = $this->email($request);
 
-        $customer = Customer::createWithoutEmail([
-            'first_name' => $this->name($request),
-        ]);
+        if (!$email && config('gesoftlivechat.require_email')) {
+            return $this->fail($request, __('Please leave an email address so we can reach you.'), 422);
+        }
+
+        $token = bin2hex(random_bytes(16));
+        $customer = $this->customer($email, $request);
+
+        // One live token per customer on this channel: `addChannel()` replaces
+        // the stored id. A returning customer opening the widget on a second
+        // device therefore takes the session with them, and the first device's
+        // token stops resolving — it degrades to "this conversation is no
+        // longer open", which is the truth from that tab's point of view.
         $customer->addChannel($this->channel(), $token);
 
         $result = Conversation::create(
@@ -317,6 +326,44 @@ class ChatController extends Controller
         $text = \Helper::htmlToText((string) $html);
 
         return trim(html_entity_decode($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+    }
+
+    /**
+     * The visitor as a FreeScout customer.
+     *
+     * With an address, `Customer::create()` finds the existing record for it,
+     * so a customer who has emailed us before keeps one profile and one
+     * history. Without one there is nothing to match on and a fresh record is
+     * the only honest answer.
+     */
+    protected function customer($email, Request $request)
+    {
+        $data = ['first_name' => $this->name($request)];
+
+        $phone = trim(strip_tags((string) $request->input('phone', '')));
+        if ($phone !== '') {
+            $data['phones'] = [mb_substr($phone, 0, 40)];
+        }
+
+        if ($email) {
+            $customer = Customer::create($email, $data);
+            if ($customer) {
+                return $customer;
+            }
+        }
+
+        return Customer::createWithoutEmail($data);
+    }
+
+    /** The address, or null if it is missing or not one. */
+    protected function email(Request $request)
+    {
+        $email = trim((string) $request->input('email', ''));
+        if ($email === '') {
+            return null;
+        }
+
+        return filter_var($email, FILTER_VALIDATE_EMAIL) ? mb_substr($email, 0, 191) : null;
     }
 
     protected function name(Request $request)

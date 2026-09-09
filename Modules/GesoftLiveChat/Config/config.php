@@ -105,4 +105,18 @@ return [
      * customer, so it is worded as one.
      */
     'idle_prompt' => env('GESOFT_LIVE_CHAT_IDLE_PROMPT', 'Are you still there?'),
+
+    /**
+     * Whether a visitor must give an email address before the first message.
+     *
+     * On worth having: an address is what connects this conversation to the
+     * customer's existing record. `Customer::create()` deduplicates by email,
+     * so a returning customer's chat lands on the same profile as their
+     * tickets instead of creating a stranger every time.
+     *
+     * Turn it off where identity arrives another way — an application that
+     * already knows who is signed in passes it to the widget, and asking again
+     * would be asking somebody to introduce themselves twice.
+     */
+    'require_email' => env('GESOFT_LIVE_CHAT_REQUIRE_EMAIL', true),
 ];

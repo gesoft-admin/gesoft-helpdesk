@@ -26,6 +26,14 @@
     var script = document.currentScript;
     var BASE = (script && script.getAttribute('data-base')) || '';
     var TITLE = (script && script.getAttribute('data-title')) || 'Asistență';
+
+    // Identity the host page already knows. An application where the customer
+    // is signed in should hand it over rather than make them introduce
+    // themselves a second time; a plain website leaves this empty and the
+    // visitor is asked.
+    var IDENTITY = (window.GesoftLiveChat && window.GesoftLiveChat.identity) || {};
+    var ASK = (script && script.getAttribute('data-prechat')) !== 'off'
+              && !(IDENTITY.email || IDENTITY.name);
     var STORE = 'gesoft-live-chat-token';
     var POLL_MS = 3000;
 
@@ -81,6 +89,23 @@
         '  background: #0d5652; color: #fff; font: inherit; font-weight: 600;',
         '}',
         '.form button[disabled] { opacity: .5; cursor: default; }',
+        '.intro { display: none; flex-direction: column; gap: 10px; padding: 14px; overflow-y: auto; }',
+        '.panel.asking .intro { display: flex; }',
+        '.panel.asking .log, .panel.asking .form { display: none; }',
+        '.intro-note { margin: 0; color: #5b696c; font-size: 13px; }',
+        '.intro label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #5b696c; }',
+        '.intro input, .intro textarea {',
+        '  font: 14px/1.5 inherit; padding: 8px 10px; border: 1px solid #cfdad8;',
+        '  border-radius: 8px; background: #fff; color: #16201f; resize: vertical;',
+        '}',
+        '.intro input:focus-visible, .intro textarea:focus-visible { outline: 2px solid #0d5652; }',
+        '.intro button { border: 0; border-radius: 8px; padding: 10px; cursor: pointer; background: #0d5652; color: #fff; font: inherit; font-weight: 600; }',
+        '.intro-error { color: #9c3a2c; font-size: 12px; min-height: 1em; }',
+        '@media (prefers-color-scheme: dark) {',
+        '  .intro-note, .intro label { color: #93a3a3; }',
+        '  .intro input, .intro textarea { background: #0f1516; border-color: #2c3839; color: #e3eae8; }',
+        '  .intro-error { color: #d97a67; }',
+        '}',
         '@media (prefers-color-scheme: dark) {',
         '  .panel { background: #141b1c; color: #e3eae8; }',
         '  .log { background: #0f1516; }',
@@ -93,6 +118,14 @@
         '<button class="launcher" type="button" aria-label="', esc(TITLE), '">&#128172;</button>',
         '<section class="panel" role="dialog" aria-label="', esc(TITLE), '">',
         '  <div class="head">', esc(TITLE), '<small>Scrieți-ne, vă răspundem imediat.</small></div>',
+        '  <form class="intro">',
+        '    <p class="intro-note">Lăsați-ne datele dumneavoastră și vă răspundem imediat.</p>',
+        '    <label>Nume<input type="text" name="name" autocomplete="name" required></label>',
+        '    <label>Email<input type="email" name="email" autocomplete="email" required></label>',
+        '    <label>Mesaj<textarea name="message" rows="3" required></textarea></label>',
+        '    <button type="submit">Începeți conversația</button>',
+        '    <span class="intro-error" role="alert"></span>',
+        '  </form>',
         '  <div class="log" role="log" aria-live="polite"></div>',
         '  <form class="form">',
         '    <textarea rows="1" placeholder="Mesajul dumneavoastră…" aria-label="Mesaj"></textarea>',
@@ -108,6 +141,7 @@
     }
 
     var launcher = root.querySelector('.launcher');
+    var intro    = root.querySelector('.intro');
     var panel    = root.querySelector('.panel');
     var log      = root.querySelector('.log');
     var form     = root.querySelector('.form');
@@ -204,12 +238,66 @@
 
     // ---------------------------------------------------------------- events
 
+    function asking() {
+        return ASK && !token;
+    }
+
+    function showChat() {
+        panel.classList.remove('asking');
+        input.focus();
+    }
+
     launcher.addEventListener('click', function () {
         var open = panel.classList.toggle('open');
-        if (open) {
-            input.focus();
-            if (token) { poll(); startPolling(); }
+        if (!open) { return; }
+
+        if (asking()) {
+            panel.classList.add('asking');
+            intro.querySelector('[name="name"]').focus();
+            return;
         }
+
+        showChat();
+        if (token) { poll(); startPolling(); }
+    });
+
+    // The introduction. One screen — who you are and what is wrong — rather
+    // than a form and then a chat, because two steps before saying anything is
+    // where people give up.
+    intro.addEventListener('submit', function (e) {
+        e.preventDefault();
+
+        var name = intro.querySelector('[name="name"]').value.trim(),
+            email = intro.querySelector('[name="email"]').value.trim(),
+            text = intro.querySelector('[name="message"]').value.trim(),
+            err = intro.querySelector('.intro-error'),
+            button = intro.querySelector('button');
+
+        err.textContent = '';
+        if (!text) { return; }
+
+        button.disabled = true;
+        post('start', { name: name, email: email, message: text })
+            .then(function (res) {
+                button.disabled = false;
+
+                if (!res || res.status !== 'success') {
+                    err.textContent = (res && res.msg) || 'Nu am putut începe conversația.';
+                    return;
+                }
+
+                token = res.token;
+                try { localStorage.setItem(STORE, token); } catch (e) {}
+                if (typeof res.since === 'number') { since = res.since; }
+
+                showChat();
+                add('visitor', text);
+                startPolling();
+            })
+            .catch(function () {
+                button.disabled = false;
+                err.textContent = 'Nu am putut trimite. Verificați conexiunea.';
+            });
     });
 
     form.addEventListener('submit', function (e) {
@@ -223,7 +311,17 @@
         add('visitor', text);
 
         var path = token ? 'send' : 'start';
-        post(path, { token: token, message: text })
+        var payload = { token: token, message: text };
+
+        // No token yet means this is the first message, which happens here only
+        // when the host page supplied the identity and the form was skipped.
+        if (!token) {
+            payload.name = IDENTITY.name || '';
+            payload.email = IDENTITY.email || '';
+            payload.phone = IDENTITY.phone || '';
+        }
+
+        post(path, payload)
             .then(function (res) {
                 sendBtn.disabled = false;
 
@@ -255,6 +353,7 @@
 
     document.body.appendChild(host);
 
-    // A returning visitor picks their conversation back up without clicking.
+    // A returning visitor picks their conversation back up without clicking,
+    // and is never asked who they are a second time.
     if (token) { poll(); startPolling(); }
 })();

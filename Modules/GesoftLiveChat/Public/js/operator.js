@@ -32,9 +32,26 @@
     var known_latest = null;
     var started = false;
 
+    // Built from the application's own base rather than looked up in laroute.
+    //
+    // laroute's JavaScript is generated at build time, and a module's routes
+    // are only in it if somebody regenerated it after installing the module.
+    // They were not, so `laroute.route()` threw, `refresh()` returned on its
+    // first line, and nothing was ever painted — the indicator was not subtle,
+    // it was absent. A URL this module already knows needs no build step to
+    // stay true.
+    function base() {
+        try {
+            if (typeof Vars !== 'undefined' && Vars.public_url) { return Vars.public_url; }
+        } catch (e) {}
+
+        return '';
+    }
+
     function endpoint() {
         if (url) { return url; }
-        try { url = laroute.route('gesoftlivechat.agent.chats'); } catch (e) { url = null; }
+        url = base() + '/gesoft-live-chat/agent/chats';
+
         return url;
     }
 
@@ -190,9 +207,7 @@
         if (!id || link.data('busy')) { return; }
         link.data('busy', true);
 
-        var u;
-        try { u = laroute.route('gesoftlivechat.agent.nudge', { conversation_id: id }); }
-        catch (err) { link.data('busy', false); return; }
+        var u = base() + '/gesoft-live-chat/agent/' + id + '/nudge';
 
         $.post(u, { _token: $('meta[name="csrf-token"]').attr('content') })
             .done(function () { window.location.reload(); })

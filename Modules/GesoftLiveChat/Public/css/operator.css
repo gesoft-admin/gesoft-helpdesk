@@ -58,3 +58,32 @@
     line-height: 15px;
     text-align: center;
 }
+
+/*
+ * Live and waiting, told apart at a glance.
+ *
+ * Core distinguishes them with `background-color: #f4f8fd` on the active one —
+ * a tint pale enough that an agent scanning the list cannot see it. Closed
+ * chats are not here at all: `Conversation::getChats()` returns only active and
+ * pending, so leaving the list *is* what closing does.
+ *
+ * A rail rather than a colour wash, because it survives the row also being
+ * selected, hovered or unread, and it reads without depending on hue alone —
+ * the waiting rows are dimmed as well.
+ */
+.chats li.chat-item {
+    border-left: 3px solid transparent;
+}
+
+.chats li.chat-item.new {
+    border-left-color: #0d5652;
+}
+
+.chats li.chat-item:not(.new) {
+    border-left-color: #c08a2e;
+}
+
+.chats li.chat-item:not(.new):not(.active) .chat-preview,
+.chats li.chat-item:not(.new):not(.active) .folder-name {
+    opacity: .62;
+}

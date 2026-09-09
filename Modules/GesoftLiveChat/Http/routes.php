@@ -37,3 +37,18 @@ Route::group([
     // before anybody embeds it on a real site. Off unless dev tools are on.
     Route::get('/demo', 'ChatController@demo')->name('gesoftlivechat.demo');
 });
+
+/**
+ * The agent's side. Session and permissions as usual, and no overlap with the
+ * visitor routes above: nothing a customer can reach touches this group.
+ */
+Route::group([
+    'middleware' => 'web',
+    'prefix'     => \Helper::getSubdirectory(),
+    'namespace'  => 'Modules\GesoftLiveChat\Http\Controllers',
+], function () {
+    Route::get('/gesoft-live-chat/agent/chats', [
+        'uses'    => 'AgentController@chats',
+        'laroute' => true,
+    ])->name('gesoftlivechat.agent.chats');
+});

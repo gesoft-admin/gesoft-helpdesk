@@ -100,6 +100,68 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
                 'at'              => now()->toRfc3339String(),
             ]);
         }, 20, 3);
+
+        // When an agent starts remote support from a chat, put the link in the
+        // chat. Without this the agent has a link in a sidebar and a customer
+        // who cannot see sidebars — the two halves of the flow sit a copy-paste
+        // apart, which is exactly where a support call goes wrong.
+        //
+        // Chat conversations only. On an email conversation this would post a
+        // reply, which means sending mail, and that is a decision belonging to
+        // whoever wants it rather than a side effect of installing a chat
+        // module.
+        \Eventy::addAction('gesoft.remote_support.started', function ($conversation, $session, $user) {
+            if (!$conversation || !$conversation->isChat()) {
+                return;
+            }
+
+            $url = method_exists($session, 'customerUrl') ? $session->customerUrl() : null;
+            if (!$url) {
+                \Log::warning('GesoftLiveChat: remote support started with no customer link', [
+                    'conversation_id' => $conversation->id,
+                ]);
+
+                return;
+            }
+
+            // Plain text, the same shape the visitor's own messages take, so
+            // the bubble renders it with the code path already in use rather
+            // than a second one that has to be kept safe separately.
+            $body = __('To let us connect to your computer, open this link and run the tool it gives you:')
+                .' '.$url;
+
+            \App\Thread::createExtended(
+                [
+                    'type'               => \App\Thread::TYPE_MESSAGE,
+                    'body'               => htmlspecialchars($body, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                    'state'              => \App\Thread::STATE_PUBLISHED,
+                    'created_by_user_id' => $user->id ?? null,
+                ],
+                $conversation,
+                $conversation->customer
+            );
+
+            \Log::info('GesoftLiveChat: remote support link posted into the chat', [
+                'conversation_id' => $conversation->id,
+                'session'         => $session->helpdesk_session_id ?? null,
+            ]);
+        }, 20, 3);
+
+        // The agent-side indicator. Core never puts a count on its own Chats
+        // link and only subscribes to the chat realtime channel when the chat
+        // list is already on screen, so an agent reading a ticket cannot tell
+        // that somebody is waiting. These two files add that and patch nothing.
+        \Eventy::addFilter('javascripts', function ($javascripts) {
+            $javascripts[] = \Module::getPublicPath(GESOFT_LIVE_CHAT_MODULE).'/js/operator.js';
+
+            return $javascripts;
+        });
+
+        \Eventy::addFilter('stylesheets', function ($styles) {
+            $styles[] = \Module::getPublicPath(GESOFT_LIVE_CHAT_MODULE).'/css/operator.css';
+
+            return $styles;
+        });
     }
 
     /**

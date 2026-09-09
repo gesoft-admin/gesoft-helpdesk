@@ -1,0 +1,37 @@
+/*
+ * The waiting-chat indicator.
+ *
+ * Deliberately quiet: a count and a weight change, not a flash. An agent has
+ * this in the corner of their eye all day, and something that blinks all day
+ * is something they stop seeing — which would defeat the point of adding it.
+ */
+.gesoft-chat-count {
+    display: inline-block;
+    min-width: 1.6em;
+    padding: 0 .35em;
+    text-align: center;
+    border-radius: 9px;
+    background: #0d5652;
+    color: #fff;
+    font-size: 11px;
+    line-height: 17px;
+}
+
+#folders li.gesoft-chats-waiting > a .folder-name {
+    font-weight: 700;
+}
+
+/* One pulse when the count first appears, and then nothing. Enough to catch
+   the eye on arrival without turning the sidebar into an alarm. */
+#folders li.gesoft-chats-waiting > a .gesoft-chat-count {
+    animation: gesoft-chat-pulse 1.1s ease-out 2;
+}
+
+@keyframes gesoft-chat-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(13, 86, 82, .55); }
+    100% { box-shadow: 0 0 0 9px rgba(13, 86, 82, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #folders li.gesoft-chats-waiting > a .gesoft-chat-count { animation: none; }
+}

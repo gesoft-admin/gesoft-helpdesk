@@ -131,6 +131,14 @@ class GesoftRemoteSupportController extends Controller
         \Log::info(self::LOG_PREFIX.': conversation '.$conversation->id
             .' started helpdesk session '.$remote_id.' (agent '.$user->id.')');
 
+        // Announce it, and stop there. This module's job ends with a session
+        // that exists and a link the agent can read; how the customer is given
+        // that link depends on what kind of conversation this is, and that is
+        // not knowledge this module should carry. A chat module can put it in
+        // the chat; nothing at all can listen, and the panel behaves exactly as
+        // it did before.
+        \Eventy::action('gesoft.remote_support.started', $conversation, $session, $user);
+
         return $this->success($session);
     }
 

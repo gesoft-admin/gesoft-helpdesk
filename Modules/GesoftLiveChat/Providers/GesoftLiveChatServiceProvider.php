@@ -34,6 +34,7 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
     {
         $this->registerConfig();
         $this->registerViews();
+        $this->loadMigrationsFrom(__DIR__.'/../Database/Migrations');
         $this->hooks();
         $this->registerCommands();
     }
@@ -229,6 +230,48 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
                 return false;
             }
         });
+
+        // What the lines this module writes into a chat say: the visitor ended
+        // it, left, or came back. Core words its own line items and leaves any
+        // other action type blank.
+        \Eventy::addFilter('thread.action_text', function ($did_this, $thread) {
+            $text = self::lineText($thread);
+
+            return $text !== null ? $text : $did_this;
+        }, 20, 2);
+
+        // Whose name those lines carry: the customer's. Core only names a
+        // person for line items an agent made and would print "System".
+        \Eventy::addFilter('thread.action_person', function ($person, $thread) {
+            if (self::lineText($thread) === null) {
+                return $person;
+            }
+
+            $customer = $thread->customer_cached ?? null;
+
+            return $customer ? $customer->getFullName(true) : $person;
+        }, 20, 2);
+    }
+
+    /**
+     * The wording of this module's line items, or null for anything else.
+     */
+    public static function lineText($thread)
+    {
+        if (!$thread || (int) ($thread->type ?? 0) !== \App\Thread::TYPE_LINEITEM) {
+            return null;
+        }
+
+        switch ((int) ($thread->action_type ?? 0)) {
+            case \Modules\GesoftLiveChat\Support\Presence::ACTION_ENDED:
+                return __(':person ended the chat');
+            case \Modules\GesoftLiveChat\Support\Presence::ACTION_LEFT:
+                return __(':person left the chat');
+            case \Modules\GesoftLiveChat\Support\Presence::ACTION_RETURNED:
+                return __(':person came back to the chat');
+        }
+
+        return null;
     }
 
     /**

@@ -9,8 +9,10 @@
  * true of every route below and none of them are optional:
  *
  *  - the only credential is the visitor's own opaque token, and it addresses
- *    exactly one customer's conversation;
- *  - every route is rate limited, because these create rows in the database;
+ *    exactly one conversation — never a customer, and never anything found
+ *    by what the visitor typed;
+ *  - every route is rate limited, because these create rows in the database,
+ *    and starting a conversation has a tighter budget of its own;
  *  - nothing here can reach an operator route. The agent side is `web` + `auth`
  *    as before and shares no code path with this file.
  */
@@ -22,7 +24,7 @@ Route::group([
     // Preflight, so the bubble can live on a customer's own domain.
     Route::options('/{any}', 'ChatController@preflight')->where('any', '.*');
 
-    // First message: mints the visitor, the customer and the conversation.
+    // First message: mints the customer, the conversation and the session.
     Route::post('/start', 'ChatController@start')->name('gesoftlivechat.start');
 
     // Every message after that.
@@ -31,6 +33,13 @@ Route::group([
     // What the agent has said since the visitor last asked. Read-only, so the
     // throttle above is generous enough for a three-second poll.
     Route::get('/poll', 'ChatController@poll')->name('gesoftlivechat.poll');
+
+    // The visitor ended the chat on purpose. The token stops working.
+    Route::post('/end', 'ChatController@end')->name('gesoftlivechat.end');
+
+    // The tab is going away, sent as a beacon. Only recorded; the sweep decides
+    // later whether the visitor really left.
+    Route::post('/leave', 'ChatController@leave')->name('gesoftlivechat.leave');
 
     // The demo page, which is a test harness rather than a product: it hosts
     // the bubble on this server so the transport can be exercised end to end

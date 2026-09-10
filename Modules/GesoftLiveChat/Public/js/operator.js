@@ -179,6 +179,42 @@
         } catch (e) {}
     }
 
+    // Whether the visitor in each chat is still there, as a dot before the
+    // name with the same thing said in its tooltip, so it never rests on colour
+    // alone. The conversation itself carries a line when somebody leaves.
+    var presence = {};
+    var PRESENCE_TITLE = {
+        here: 'Clientul este în chat',
+        left: 'Clientul a părăsit chatul',
+        ended: 'Clientul a încheiat chatul'
+    };
+
+    function paintPresence() {
+        $('.chats li.chat-item[data-chat_id]').each(function () {
+            var li = $(this), state = presence[li.attr('data-chat_id')];
+
+            li.removeClass('gesoft-presence-here gesoft-presence-left gesoft-presence-ended');
+            if (!state) { return; }
+
+            li.addClass('gesoft-presence-' + state);
+            li.find('.folder-name').first().attr('title', PRESENCE_TITLE[state] || '');
+        });
+    }
+
+    // Core re-renders the chat list from its own realtime events, which drops
+    // these classes. Put them back whenever the list changes, at most once a
+    // frame.
+    if (window.MutationObserver) {
+        $(function () {
+            var queued = false;
+            new MutationObserver(function () {
+                if (queued) { return; }
+                queued = true;
+                window.requestAnimationFrame(function () { queued = false; paintPresence(); });
+            }).observe(document.body, { childList: true, subtree: true });
+        });
+    }
+
     function refresh(announce_new) {
         var u = endpoint();
         if (!u) { return; }
@@ -192,6 +228,9 @@
 
             paint(res.count);
             paintHeader(res.count, res.mailbox_id);
+
+            presence = res.presence || {};
+            paintPresence();
 
             // First answer of the page load only establishes what is already
             // there. Announcing then would greet an agent with a notification

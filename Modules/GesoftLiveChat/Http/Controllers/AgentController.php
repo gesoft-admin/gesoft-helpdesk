@@ -140,6 +140,16 @@ class AgentController extends Controller
         $mailbox_id = $latest->mailbox_id ?? ($mailbox_ids->first() ?? 0);
         $list_mailbox_id = $from->mailbox_id ?? $mailbox_id;
 
+        // Whether each visible chat's visitor is still there, for the dot in
+        // the chat list. Newest session per conversation wins.
+        $presence = [];
+        $sessions = \Modules\GesoftLiveChat\Entities\ChatSession::whereIn('conversation_id', $conversation_ids)
+            ->orderBy('id')
+            ->get();
+        foreach ($sessions as $session) {
+            $presence[$session->conversation_id] = $session->state();
+        }
+
         return response()->json([
             'status'      => 'success',
             'count'       => $query->count(),
@@ -155,6 +165,9 @@ class AgentController extends Controller
                 ? route('conversations.chats', ['mailbox_id' => $list_mailbox_id])
                 : '',
             'new_conversations' => $new_conversations,
+            // conversation id => here | left | ended. An object even when
+            // empty, so the browser always gets a map.
+            'presence'    => (object) $presence,
             // Where the header indicator should send an agent who clicks it.
             // Pages outside a mailbox have no mailbox of their own, so the
             // answer travels with the count rather than being guessed in the

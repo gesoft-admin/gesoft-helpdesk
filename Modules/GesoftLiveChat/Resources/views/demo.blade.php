@@ -38,7 +38,8 @@
             <li>Apăsați bula din colțul din dreapta jos și scrieți un mesaj.</li>
             <li>În FreeScout, deschideți folderul <strong>Chats</strong>. Conversația apare acolo.</li>
             <li>Răspundeți din <strong>Chat Mode</strong>. Răspunsul ajunge în bulă după circa 15 secunde — întârzierea de Undo a FreeScout, nu a noastră.</li>
-            <li>Reîncărcați pagina: conversația se reia, fiindcă tokenul stă în <code>localStorage</code>.</li>
+            <li>Reîncărcați pagina: conversația continuă în același tab. Un tab nou pornește o conversație nouă, iar după închiderea browserului nu rămâne nimic — tokenul stă în <code>sessionStorage</code>.</li>
+            <li><strong>Încheie</strong>, din capul bulei, oprește conversația pentru vizitator; în FreeScout apare o linie care spune asta. Închiderea tabului apare ca „a părăsit chatul" după circa două minute fără revenire.</li>
         </ol>
     </section>
 

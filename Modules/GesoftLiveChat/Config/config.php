@@ -58,30 +58,38 @@ return [
     'mailbox_id' => env('GESOFT_LIVE_CHAT_MAILBOX_ID', null),
 
     /**
-     * How long after an agent closes a chat the visitor may still write into
-     * it, in seconds. Zero disables it.
+     * How many conversations one address may start, and over how many minutes.
+     * Zero for the limit switches it off.
      *
-     * This exists because "the agent closed it" and "the visitor wandered off"
-     * look identical from here and are not the same thing. A visitor who is
-     * still typing when the agent presses Close should land in the
-     * conversation they were having, not open a second one the agent then has
-     * to read from the beginning.
+     * Separate from the route throttle, which counts every request including
+     * the three-second poll and so has to be generous. Starting is the call
+     * that creates something an agent must read, so it gets a budget of its
+     * own. Live Helper Chat ships with no limit here at all.
      *
-     * **Only applies when the mailbox asks for new conversations.** FreeScout
-     * owns the larger decision: each mailbox has "Start a new conversation when
-     * receiving a reply to the closed / deleted Chat conversation", and with it
-     * unticked — the default — a returning customer always lands in the same
-     * conversation and this number is never consulted.
-     *
-     * Live Helper Chat settled the same question with two settings — how many
-     * seconds a customer has to reopen a closed chat, and whether it reopens
-     * as new or as active.
-     *
-     * Two minutes is short on purpose. Long enough for a message already being
-     * typed, short enough that a customer returning after lunch does not
-     * silently revive a conversation the agent considered finished.
+     * A closed chat is not reopened from the bubble — the visitor starts a new
+     * one — so a real customer may use more than one start in an afternoon.
+     * Three in ten minutes leaves room for that and not for a script.
      */
-    'reopen_window' => env('GESOFT_LIVE_CHAT_REOPEN_WINDOW', 120),
+    'start_limit'  => env('GESOFT_LIVE_CHAT_START_LIMIT', 3),
+    'start_window' => env('GESOFT_LIVE_CHAT_START_WINDOW', 10),
+
+    /**
+     * How often a visitor's poll is written down as "still here", in seconds.
+     * Polls in between are answered without a write.
+     */
+    'seen_every' => env('GESOFT_LIVE_CHAT_SEEN_EVERY', 30),
+
+    /**
+     * How long without a sign of the visitor before they count as gone, in
+     * seconds. Zero never marks anybody gone.
+     *
+     * Two minutes rather than Live Helper Chat's one: Chrome slows the timers
+     * of a background tab to about once a minute, so at sixty seconds a
+     * customer who only switched tabs would be reported as having left. The
+     * goodbye a closing tab sends does not shorten this — a reload sends the
+     * same goodbye a moment before coming back.
+     */
+    'gone_after' => env('GESOFT_LIVE_CHAT_GONE_AFTER', 120),
 
     /**
      * How long after **the agent's last reply** a chat with no customer answer

@@ -22,11 +22,12 @@ namespace Illuminate\Support {
         public function mergeConfigFrom($path, $key) {}
         public function commands($commands) { global $REGISTERED_COMMANDS; $REGISTERED_COMMANDS = $commands; }
         public function loadViewsFrom($paths, $namespace) {}
+        public function loadMigrationsFrom($path) { global $MIGRATIONS; $MIGRATIONS = $path; }
     }
 }
 
 namespace App {
-    class Thread { const TYPE_CUSTOMER = 1; const TYPE_MESSAGE = 2; }
+    class Thread { const TYPE_CUSTOMER = 1; const TYPE_MESSAGE = 2; const TYPE_LINEITEM = 4; }
 }
 
 namespace App\Notifications {
@@ -44,6 +45,7 @@ namespace {
     $CONFIG = ['gesoftlivechat.channel' => 100, 'gesoftlivechat.dev_tools' => false];
     $REGISTERED_COMMANDS = [];
     $LOGGED = [];
+    $MIGRATIONS = null;
 
     function config($key, $default = null) { global $CONFIG; return array_key_exists($key, $CONFIG) ? $CONFIG[$key] : $default; }
     function __($s, $r = []) { return $s; }
@@ -79,12 +81,19 @@ namespace {
         public function isChat() { return $this->chat; }
     }
 
+    class CustomerStub {
+        private $name;
+        public function __construct($name) { $this->name = $name; }
+        public function getFullName($email_if_empty = false) { return $this->name; }
+    }
+
     class AppStub {
         public $console;
         public function __construct($console) { $this->console = $console; }
         public function runningInConsole() { return $this->console; }
     }
 
+    require __DIR__.'/../Support/Presence.php';
     require __DIR__.'/../Providers/GesoftLiveChatServiceProvider.php';
 
     $pass = 0; $fail = 0;
@@ -95,8 +104,8 @@ namespace {
     }
 
     function boot($console = false) {
-        global $LOGGED, $REGISTERED_COMMANDS;
-        $LOGGED = []; $REGISTERED_COMMANDS = [];
+        global $LOGGED, $REGISTERED_COMMANDS, $MIGRATIONS;
+        $LOGGED = []; $REGISTERED_COMMANDS = []; $MIGRATIONS = null;
         Eventy::$stub = new EventyStub();
         Event::$listeners = [];
         (new \Modules\GesoftLiveChat\Providers\GesoftLiveChatServiceProvider(new AppStub($console)))->boot();
@@ -168,6 +177,10 @@ namespace {
     \Eventy::filter('schedule', $sched);
     check('sweep added to the schedule', $sched->added, ['gesoftlivechat:sweep-chats']);
 
+    // The sessions table has to be created on install, or every start fails.
+    boot();
+    check('migrations are loaded from the module', strpos((string) $MIGRATIONS, 'Database/Migrations') !== false, true);
+
     // A customer's chat message is announced by the in-page alert, so the bell
     // must not file it as well — and nothing else may be cancelled with it.
     // Laravel treats a listener answer of false as "do not send"; null lets the
@@ -191,6 +204,22 @@ namespace {
     check('an agent reply in a chat keeps its bell entry',
         $sending(new \App\Notifications\WebsiteNotification($chat, $from_agent)), null);
     check('other notifications are not touched', $sending(new \stdClass()), null);
+
+    // The lines written into a chat when a visitor ends it, leaves, or comes
+    // back: what they say, and whose name they carry. Core only names a person
+    // for line items an agent made and would otherwise print "System".
+    boot();
+    $line = function ($action) {
+        return (object) ['type' => \App\Thread::TYPE_LINEITEM, 'action_type' => $action, 'customer_cached' => new CustomerStub('Ana Pop')];
+    };
+    check('ended line', \Eventy::filter('thread.action_text', '', $line(100)), ':person ended the chat');
+    check('left line', \Eventy::filter('thread.action_text', '', $line(101)), ':person left the chat');
+    check('came back line', \Eventy::filter('thread.action_text', '', $line(102)), ':person came back to the chat');
+    check("core's own line items keep their text", \Eventy::filter('thread.action_text', 'core text', $line(1)), 'core text');
+    check('a message with a stray action type is not reworded',
+        \Eventy::filter('thread.action_text', 'x', (object) ['type' => 1, 'action_type' => 100]), 'x');
+    check('the line is signed with the customer', \Eventy::filter('thread.action_person', '', $line(101)), 'Ana Pop');
+    check("core's line items keep core's person", \Eventy::filter('thread.action_person', 'Dan', $line(1)), 'Dan');
 
     printf("\n%d passed, %d failed\n", $pass, $fail);
     exit($fail ? 1 : 0);

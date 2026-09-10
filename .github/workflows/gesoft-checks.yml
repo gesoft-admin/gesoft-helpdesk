@@ -43,6 +43,13 @@ jobs:
       - name: Live chat channel registration
         run: php Modules/GesoftLiveChat/Tests/channel-registration.php
 
+      # Ours, and pure: the rules that keep one visitor out of another's
+      # conversation — the token's shape, when writing stops, when a visitor
+      # counts as gone. The end-to-end suites under Tests/e2e need a running
+      # instance and are not run here.
+      - name: Live chat session rules
+        run: php Modules/GesoftLiveChat/Tests/presence.php
+
       # Not ours at all: this reads FreeScout's own source and fails when the
       # symbols and hooks the live chat module borrows have moved. It is the
       # only check that can see an upstream merge break chat, because our own

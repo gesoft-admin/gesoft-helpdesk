@@ -35,14 +35,28 @@ and audio cue, and the rule that a chat conversation is never answered by
 email. All of that is already in core and inert behind one filter,
 `channels.list`.
 
-In this phase the module has no customer-facing surface at all — no route, no
-widget, no table of its own. It registers two filters and one action listener,
-and carries a development-only artisan command, off unless
-`GESOFT_LIVE_CHAT_DEV_TOOLS=true`, that creates a chat conversation so the
-operator side can be validated before a widget exists.
+On top of that it carries the visitor's half, which core does not have: a chat
+bubble (`Public/js/widget.js`), five public endpoints behind the `open`
+middleware group (start, send, poll, end, leave) and one table of its own,
+`gesoft_live_chat_sessions`, with a row per visitor tab. The only credential a
+visitor ever holds is a random token for one conversation. Only its hash is
+stored, it lives in the tab rather than the browser, and nothing the visitor
+types — a name, an email address — leads to a conversation. Starting a
+conversation has its own rate limit per address.
+
+For agents it adds a waiting-chat count, an in-page alert that opens the chat
+it announces, a mark in the chat list saying whether the visitor is still
+there, lines in the conversation when a visitor ends the chat, leaves or comes
+back, and an idle sweep counted from the agent's last reply. Customer chat
+messages are kept out of the notification bell, which the alert replaces.
+
+A development-only artisan command and demo page, both off unless
+`GESOFT_LIVE_CHAT_DEV_TOOLS=true`, exist to exercise it on a test instance.
 
 What it depends on in core, and the test that detects an upgrade breaking it,
-are in [`docs/live-chat-core-contract.md`](docs/live-chat-core-contract.md).
+are in [`docs/live-chat-core-contract.md`](docs/live-chat-core-contract.md). The
+pure tests run in CI; the end-to-end suites in `Modules/GesoftLiveChat/Tests/e2e/`
+need a running test instance and are run by hand — never against production.
 
 ### `Modules/GesoftBranding`
 

@@ -37,8 +37,21 @@
     var STORE = 'gesoft-live-chat-token';
     var POLL_MS = 3000;
 
+    // The tab, not the browser. sessionStorage survives a reload and moving
+    // between pages of the same site in the same tab, and dies with the tab.
+    // A new tab is a new conversation, and a closed browser keeps nothing —
+    // which is the point on a shared computer, where the next person to open
+    // the site must not find the last person's chat waiting for them.
+    function store() {
+        try { return window.sessionStorage; } catch (e) { return null; }
+    }
+
     var token = null;
-    try { token = localStorage.getItem(STORE); } catch (e) { /* private mode */ }
+    try { token = store() ? store().getItem(STORE) : null; } catch (e) { /* storage blocked */ }
+
+    // Earlier builds kept the token in localStorage, where it outlived the
+    // browser. Those tokens address nothing any more; do not leave them behind.
+    try { window.localStorage.removeItem(STORE); } catch (e) {}
 
     var since = 0;
     var timer = null;
@@ -69,8 +82,13 @@
         '  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;',
         '}',
         '.panel.open { display: flex; }',
-        '.head { background: #0d5652; color: #fff; padding: 12px 14px; font-weight: 600; }',
+        '.head { background: #0d5652; color: #fff; padding: 12px 14px; font-weight: 600;',
+        '  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }',
         '.head small { display: block; font-weight: 400; opacity: .8; font-size: 12px; }',
+        '.end { flex: none; background: transparent; color: #fff; cursor: pointer;',
+        '  border: 1px solid rgba(255,255,255,.55); border-radius: 6px; padding: 2px 9px; font: inherit; font-size: 12px; font-weight: 400; }',
+        '.end:hover { background: rgba(255,255,255,.12); }',
+        '.end:focus-visible { outline: 2px solid #7fd3cb; outline-offset: 2px; }',
         '.log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #f4f7f6; }',
         '.msg { max-width: 82%; padding: 8px 11px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }',
         '.msg.visitor { align-self: flex-end; background: #0d5652; color: #fff; border-bottom-right-radius: 3px; }',
@@ -117,7 +135,8 @@
         '</style>',
         '<button class="launcher" type="button" aria-label="', esc(TITLE), '">&#128172;</button>',
         '<section class="panel" role="dialog" aria-label="', esc(TITLE), '">',
-        '  <div class="head">', esc(TITLE), '<small>Scrieți-ne, vă răspundem imediat.</small></div>',
+        '  <div class="head"><div>', esc(TITLE), '<small>Scrieți-ne, vă răspundem imediat.</small></div>',
+        '    <button class="end" type="button" hidden>Încheie</button></div>',
         '  <form class="intro">',
         '    <p class="intro-note">Lăsați-ne datele dumneavoastră și vă răspundem imediat.</p>',
         '    <label>Nume<input type="text" name="name" autocomplete="name" required></label>',
@@ -145,6 +164,7 @@
     var panel    = root.querySelector('.panel');
     var log      = root.querySelector('.log');
     var form     = root.querySelector('.form');
+    var endBtn   = root.querySelector('.end');
     // Scoped to the chat form. The introduction has a textarea of its own that
     // comes first in the markup, and an unscoped lookup found that one: Enter
     // in the chat box did nothing, and Send re-sent the introduction's message.
@@ -195,6 +215,25 @@
         log.scrollTop = log.scrollHeight;
     }
 
+    // --------------------------------------------------------------- session
+
+    function remember(t) {
+        token = t;
+        try { if (store()) { store().setItem(STORE, t); } } catch (e) {}
+        endBtn.hidden = false;
+    }
+
+    // The conversation this tab held is over. The next message starts a new
+    // one — through the introduction again, because nothing about the old
+    // conversation may carry a visitor into the next.
+    function forget() {
+        try { if (store()) { store().removeItem(STORE); } } catch (e) {}
+        token = null;
+        since = 0;
+        seen = {};
+        endBtn.hidden = true;
+    }
+
     // --------------------------------------------------------------- network
 
     function post(path, data) {
@@ -213,6 +252,8 @@
             .then(function (res) {
                 if (!res || res.status !== 'success') { return; }
 
+                // Messages first: the agent's last words before closing arrive
+                // in the same answer that says the conversation is closed.
                 (res.messages || []).forEach(function (m) {
                     if (seen[m.id]) { return; }
                     seen[m.id] = true;
@@ -224,13 +265,7 @@
                 if (res.closed) {
                     stopPolling();
                     note('Conversația a fost închisă. Scrieți din nou pentru a începe una nouă.');
-                    // Forget only the token this tab was using. A second tab
-                    // that started a conversation has stored its own, and
-                    // removing that one would lose it on the next reload.
-                    try {
-                        if (localStorage.getItem(STORE) === token) { localStorage.removeItem(STORE); }
-                    } catch (e) {}
-                    token = null;
+                    forget();
                 }
             })
             .catch(function () { /* a dropped poll is not worth telling anyone */ });
@@ -277,7 +312,8 @@
 
         var name = intro.querySelector('[name="name"]').value.trim(),
             email = intro.querySelector('[name="email"]').value.trim(),
-            text = intro.querySelector('[name="message"]').value.trim(),
+            message = intro.querySelector('[name="message"]'),
+            text = message.value.trim(),
             err = intro.querySelector('.intro-error'),
             button = intro.querySelector('button');
 
@@ -294,9 +330,12 @@
                     return;
                 }
 
-                token = res.token;
-                try { localStorage.setItem(STORE, token); } catch (e) {}
+                remember(res.token);
                 if (typeof res.since === 'number') { since = res.since; }
+
+                // Name and email stay filled in for a next conversation on this
+                // page; the message does not, or it would be sent twice.
+                message.value = '';
 
                 showChat();
                 add('visitor', text);
@@ -335,13 +374,21 @@
 
                 if (!res || res.status !== 'success') {
                     note((res && res.msg) || 'Mesajul nu a putut fi trimis. Încercați din nou.');
+
+                    // The conversation ended between the last poll and this
+                    // message. Start a new one with what they just wrote.
+                    if (res && res.closed) {
+                        stopPolling();
+                        forget();
+                        if (ASK) {
+                            intro.querySelector('[name="message"]').value = text;
+                            panel.classList.add('asking');
+                        }
+                    }
                     return;
                 }
 
-                if (res.token) {
-                    token = res.token;
-                    try { localStorage.setItem(STORE, token); } catch (e) {}
-                }
+                if (res.token) { remember(res.token); }
                 if (typeof res.since === 'number' && res.since > since) { since = res.since; }
 
                 startPolling();
@@ -359,9 +406,36 @@
         }
     });
 
+    // Ending on purpose. The operator is told at once, instead of learning it
+    // from silence two minutes later.
+    endBtn.addEventListener('click', function () {
+        if (!token || !window.confirm('Încheiați conversația?')) { return; }
+
+        var t = token;
+        stopPolling();
+        forget();
+        post('end', { token: t }).catch(function () {});
+        note('Ați încheiat conversația. Ne puteți scrie oricând din nou.');
+    });
+
+    // The tab is going away. A reload sends this too, a moment before polling
+    // again, which is why the server treats it as "maybe gone" until the
+    // visitor fails to come back rather than as leaving.
+    //
+    // text/plain keeps it a simple request: a bubble on another domain gets no
+    // preflight, and a beacon could not make one.
+    window.addEventListener('pagehide', function () {
+        if (!token || !navigator.sendBeacon) { return; }
+        try {
+            navigator.sendBeacon(
+                BASE + '/gesoft-live-chat/leave',
+                new Blob([JSON.stringify({ token: token })], { type: 'text/plain' })
+            );
+        } catch (e) {}
+    });
+
     document.body.appendChild(host);
 
-    // A returning visitor picks their conversation back up without clicking,
-    // and is never asked who they are a second time.
-    if (token) { poll(); startPolling(); }
+    // A reload in the same tab picks the conversation back up without clicking.
+    if (token) { endBtn.hidden = false; poll(); startPolling(); }
 })();

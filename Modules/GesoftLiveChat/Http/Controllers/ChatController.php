@@ -6,18 +6,27 @@ use App\Conversation;
 use App\Customer;
 use App\Mailbox;
 use App\Thread;
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Modules\GesoftLiveChat\Entities\ChatSession;
 
 /**
  * The visitor's half of live chat.
  *
- * Three calls — start, send, poll — and a demo page. No session, no CSRF, no
- * login: a customer on their own website has none of those. The only credential
- * is a token minted at `start`, which addresses exactly one customer.
+ * Start, send, poll, end and leave, and a demo page. No session, no CSRF, no
+ * login: a customer on their own website has none of those. The only
+ * credential is a token minted at `start`, and it addresses exactly one
+ * conversation.
  *
- * Two rules run through everything here, and both are about the fact that this
- * is the one part of the system a stranger can reach.
+ * Three rules run through everything here, and all of them are about the fact
+ * that this is the one part of the system a stranger can reach.
+ *
+ * **The token is the only way in, and it opens one conversation.** Nothing the
+ * visitor types — a name, an email address — ever selects a conversation. An
+ * earlier version found the customer by email and gave the token to the
+ * customer, which let anybody who typed another person's address read and write
+ * that person's open chat. See `Entities/ChatSession.php`.
  *
  * **Nothing internal is ever returned.** The poll hands back published customer
  * and agent messages and nothing else — never a note, never a draft, never a
@@ -49,15 +58,20 @@ class ChatController extends Controller
     /**
      * Open a conversation with the visitor's first message.
      *
-     * Returns the token the bubble keeps. Calling it again with a token that is
-     * still good is not an error — a visitor who reloads the page should not
-     * lose the thread, and should not silently open a second one either.
+     * Returns the token the bubble keeps for this tab. Calling it again with a
+     * token whose conversation is still open writes into that conversation, so
+     * a double submit cannot open a second one.
      */
     public function start(Request $request)
     {
         $body = $this->body($request);
         if ($body === null) {
             return $this->fail($request, __('Please write a message first.'));
+        }
+
+        $session = $this->session($request);
+        if ($session && $session->canWrite()) {
+            return $this->send($request);
         }
 
         $mailbox = $this->mailbox();
@@ -67,28 +81,23 @@ class ChatController extends Controller
             return $this->fail($request, __('Chat is not available right now.'), 503);
         }
 
-        // An existing visitor whose conversation is still open just writes into
-        // it. This is what makes a page reload harmless.
-        $token = (string) $request->input('token');
-        if ($token !== '' && ($existing = $this->conversationFor($token))) {
-            return $this->send($request);
-        }
-
         $email = $this->email($request);
 
         if (!$email && config('gesoftlivechat.require_email')) {
             return $this->fail($request, __('Please leave an email address so we can reach you.'), 422);
         }
 
-        $token = bin2hex(random_bytes(16));
+        if ($this->tooManyStarts($request)) {
+            return $this->fail($request, __('Too many conversations were started from your connection. Please try again in a few minutes.'), 429);
+        }
+
         $customer = $this->customer($email, $request);
 
-        // One live token per customer on this channel: `addChannel()` replaces
-        // the stored id. A returning customer opening the widget on a second
-        // device therefore takes the session with them, and the first device's
-        // token stops resolving — it degrades to "this conversation is no
-        // longer open", which is the truth from that tab's point of view.
-        $customer->addChannel($this->channel(), $token);
+        // Marks the customer as reachable on this channel, which is what core
+        // reads to show the channel on their profile. The id says which
+        // customer it is and nothing more: it is not a credential, and nothing
+        // here looks a visitor up by it.
+        $customer->addChannel($this->channel(), 'customer-'.$customer->id);
 
         $result = Conversation::create(
             [
@@ -117,6 +126,8 @@ class ChatController extends Controller
         $conversation = $result['conversation'];
         $this->makeActive($conversation);
 
+        list(, $token) = ChatSession::open($conversation);
+
         \Log::info(self::LOG_PREFIX.': chat opened', [
             'conversation_id' => $conversation->id,
             'customer_id'     => $customer->id,
@@ -138,13 +149,15 @@ class ChatController extends Controller
             return $this->fail($request, __('Please write a message first.'));
         }
 
-        list($conversation, $customer) = $this->resolve($request);
-        if (!$conversation) {
-            // Deliberately the same answer as an unknown token: a caller
-            // probing tokens learns nothing from the difference between "no
-            // such visitor" and "that conversation is closed".
-            return $this->fail($request, __('This conversation is no longer open.'), 404);
+        $session = $this->session($request);
+        if (!$session || !$session->canWrite()) {
+            // Deliberately the same answer for an unknown token, an ended
+            // session and a closed conversation: a caller probing tokens learns
+            // nothing from the difference.
+            return $this->fail($request, __('This conversation is no longer open.'), 404, ['closed' => true]);
         }
+
+        $conversation = $session->conversation;
 
         $thread = Thread::createExtended(
             [
@@ -153,21 +166,28 @@ class ChatController extends Controller
                 'state' => Thread::STATE_PUBLISHED,
             ],
             $conversation,
-            $customer
+            $conversation->customer
         );
 
         $this->makeActive($conversation);
+        $session->seen();
 
         return $this->ok($request, ['since' => $thread->id ?? 0]);
     }
 
     /**
      * What has been said since the visitor last looked.
+     *
+     * A closed conversation still answers with what is left to read — the
+     * agent's last words usually arrive together with the close — and says it
+     * is closed. After that the token is good for nothing.
      */
     public function poll(Request $request)
     {
-        list($conversation, $customer) = $this->resolve($request);
-        if (!$conversation) {
+        $session = $this->session($request);
+        $conversation = $session ? $session->conversation : null;
+
+        if (!$conversation || $conversation->state != Conversation::STATE_PUBLISHED) {
             return $this->ok($request, ['messages' => [], 'closed' => true]);
         }
 
@@ -192,11 +212,61 @@ class ChatController extends Controller
             ];
         }
 
+        $open = $session->canWrite();
+        if ($open) {
+            $session->seen();
+        }
+
         return $this->ok($request, [
             'messages' => $messages,
             'since'    => $threads->count() ? $threads->last()->id : $since,
-            'closed'   => false,
+            'closed'   => !$open,
         ]);
+    }
+
+    /**
+     * The visitor ended the chat on purpose.
+     *
+     * The token stops working at once, and a line in the conversation tells the
+     * operator now rather than leaving them to infer it from silence. The
+     * conversation itself is left for the operator to close: the customer may
+     * have spoken last, and a customer walking away has not had their question
+     * answered.
+     */
+    public function end(Request $request)
+    {
+        $session = $this->session($request);
+
+        if ($session && $session->ended_at === null) {
+            $session->ended_at = now();
+            $session->save();
+
+            if ($session->isConversationOpen()) {
+                $session->note(\Modules\GesoftLiveChat\Support\Presence::ACTION_ENDED);
+            }
+        }
+
+        // The same answer whether or not the token meant anything.
+        return $this->ok($request, []);
+    }
+
+    /**
+     * The tab is closing — or reloading, which looks the same from here.
+     *
+     * Only recorded. Whether the visitor really left is decided later by the
+     * sweep, once they fail to come back; a reload polls again within seconds
+     * and clears this.
+     */
+    public function leave(Request $request)
+    {
+        $session = $this->session($request);
+
+        if ($session && $session->ended_at === null && $session->left_at === null) {
+            $session->left_at = now();
+            $session->save();
+        }
+
+        return $this->cors($request, response('', 204));
     }
 
     /**
@@ -232,84 +302,51 @@ class ChatController extends Controller
     }
 
     /**
-     * The visitor's conversation, or null.
+     * The visitor's session, or null.
      *
-     * Returns `[$conversation, $customer]`. A closed conversation resolves to
-     * null: the visitor's next message opens a new one rather than reviving a
-     * thread an agent considered finished.
+     * The token arrives as a query parameter, a JSON field, or — from the
+     * goodbye beacon — inside a text/plain body, which Laravel does not parse.
      */
-    protected function resolve(Request $request)
+    protected function session(Request $request)
     {
-        $conversation = $this->conversationFor((string) $request->input('token'));
+        $token = $request->input('token');
 
-        return [$conversation, $conversation ? $conversation->customer : null];
-    }
-
-    protected function conversationFor($token)
-    {
-        if ($token === '' || !preg_match('/^[0-9a-f]{32}$/', $token)) {
-            return null;
+        if ($token === null) {
+            $raw = json_decode((string) $request->getContent(), true);
+            $token = is_array($raw) ? ($raw['token'] ?? null) : null;
         }
 
-        $customer = Customer::getCustomerByChannel($this->channel(), $token);
-        if (!$customer) {
-            return null;
-        }
-
-        $open = Conversation::where('customer_id', $customer->id)
-            ->where('type', Conversation::TYPE_CHAT)
-            ->where('state', Conversation::STATE_PUBLISHED)
-            ->whereIn('status', [Conversation::STATUS_ACTIVE, Conversation::STATUS_PENDING])
-            ->orderBy('id', 'desc')
-            ->first();
-
-        if ($open) {
-            return $open;
-        }
-
-        return $this->recentlyClosed($customer);
+        return ChatSession::findByToken($token);
     }
 
     /**
-     * A closed chat the visitor may still write into.
+     * A separate, tighter limit on opening conversations.
      *
-     * **FreeScout already owns this decision**, and this module was answering
-     * it on its own before anybody read the setting. Each mailbox has "Start a
-     * new conversation when receiving a reply to the closed / deleted Chat
-     * conversation", and `Conversation::chatShouldStartNew()` is what reads it.
-     * Unticked — the default — a returning customer belongs in the same
-     * conversation however long they were gone, which is also what FreeScout's
-     * own chat module documents.
-     *
-     * So the setting decides, and our window only refines the case where an
-     * operator has asked for new conversations: even then, "the agent closed it
-     * while the visitor was typing" is not a new problem, and a message two
-     * minutes later belongs where the rest of it is.
+     * The route throttle counts every request, polls included, so it has to be
+     * generous enough for a bubble polling every three seconds — and at that
+     * rate a script could open a conversation every two seconds, each one
+     * something an agent has to read. Starting is the expensive, visible call,
+     * so it gets its own budget per address. Only calls that would actually
+     * create a conversation are counted.
      */
-    protected function recentlyClosed(Customer $customer)
+    protected function tooManyStarts(Request $request)
     {
-        $closed = Conversation::where('customer_id', $customer->id)
-            ->where('type', Conversation::TYPE_CHAT)
-            ->where('state', Conversation::STATE_PUBLISHED)
-            ->where('status', Conversation::STATUS_CLOSED)
-            ->orderBy('id', 'desc')
-            ->first();
-
-        if (!$closed) {
-            return null;
+        $max = (int) config('gesoftlivechat.start_limit');
+        if ($max <= 0) {
+            return false;
         }
 
-        // The mailbox says a reply to a closed chat starts a fresh one. Honour
-        // that, except for the moments right after closing.
-        if ($closed->chatShouldStartNew()) {
-            $window = (int) config('gesoftlivechat.reopen_window');
+        $minutes = max(1, (int) config('gesoftlivechat.start_window'));
+        $limiter = app(RateLimiter::class);
+        $key = 'gesoftlivechat:start:'.sha1((string) $request->ip());
 
-            if ($window <= 0 || !$closed->closed_at || $closed->closed_at->lt(now()->subSeconds($window))) {
-                return null;
-            }
+        if ($limiter->tooManyAttempts($key, $max, $minutes)) {
+            return true;
         }
 
-        return $closed;
+        $limiter->hit($key, $minutes);
+
+        return false;
     }
 
     /**
@@ -351,8 +388,9 @@ class ChatController extends Controller
      *
      * With an address, `Customer::create()` finds the existing record for it,
      * so a customer who has emailed us before keeps one profile and one
-     * history. Without one there is nothing to match on and a fresh record is
-     * the only honest answer.
+     * history on the agent's side. That is all the address does: it groups
+     * conversations for the agent, and it never gives the visitor access to
+     * any of them.
      */
     protected function customer($email, Request $request)
     {
@@ -393,8 +431,9 @@ class ChatController extends Controller
     }
 
     /**
-     * The chat list shows active and pending conversations only, so a chat
-     * that somebody closed and the visitor reopened has to be put back.
+     * The chat list shows active and pending conversations only, so a
+     * conversation created in any other status has to be put where an agent
+     * will see it.
      */
     protected function makeActive(Conversation $conversation)
     {
@@ -411,12 +450,12 @@ class ChatController extends Controller
         return $this->cors($request, response()->json(['status' => 'success'] + $data));
     }
 
-    protected function fail(Request $request, $message, $code = 400)
+    protected function fail(Request $request, $message, $code = 400, array $extra = [])
     {
         return $this->cors($request, response()->json([
             'status' => 'error',
             'msg'    => $message,
-        ], $code));
+        ] + $extra, $code));
     }
 
     /**

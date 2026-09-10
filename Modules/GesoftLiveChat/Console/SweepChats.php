@@ -4,10 +4,12 @@ namespace Modules\GesoftLiveChat\Console;
 
 use App\Conversation;
 use Illuminate\Console\Command;
+use Modules\GesoftLiveChat\Entities\ChatSession;
+use Modules\GesoftLiveChat\Support\Presence;
 
 /**
- * Marks a chat idle when the customer has stopped answering, and closes it when
- * they never come back.
+ * Marks a chat idle when the customer has stopped answering, closes it when
+ * they never come back, and writes down visitors who went away.
  *
  * The rule that matters is **which clock this reads**. Idle time is measured
  * from the agent's last reply, never from the customer's message — so it only
@@ -30,12 +32,17 @@ use Illuminate\Console\Command;
  *      saying so, and the transcript stays in the mailbox like any other.
  *
  * Either number set to zero disables that stage.
+ *
+ * Separately, a visitor whose tab has gone quiet for `gone_after` gets one line
+ * in the conversation saying they left. That line is history only and closes
+ * nothing: a customer who walked away after asking a question has still not
+ * been answered.
  */
 class SweepChats extends Command
 {
     protected $signature = 'gesoftlivechat:sweep-chats {--dry-run : Report what would change and change nothing}';
 
-    protected $description = 'Mark unanswered chats idle and close the ones nobody comes back to';
+    protected $description = 'Mark unanswered chats idle, close the ones nobody comes back to, note visitors who left';
 
     public function handle()
     {
@@ -43,55 +50,108 @@ class SweepChats extends Command
         $close_after = (int) config('gesoftlivechat.close_after');
         $dry         = (bool) $this->option('dry-run');
 
-        if ($idle_after <= 0 && $close_after <= 0) {
-            return 0;
-        }
-
         $marked = 0;
         $closed = 0;
 
-        // Only chats where the *agent* spoke last. Everything else is a
-        // customer waiting on us, and none of this applies to that.
-        $waiting = Conversation::where('type', Conversation::TYPE_CHAT)
-            ->where('state', Conversation::STATE_PUBLISHED)
-            ->whereIn('status', [Conversation::STATUS_ACTIVE, Conversation::STATUS_PENDING])
-            ->where('last_reply_from', '!=', Conversation::PERSON_CUSTOMER)
-            ->whereNotNull('last_reply_at')
-            ->get();
+        if ($idle_after > 0 || $close_after > 0) {
+            // Only chats where the *agent* spoke last. Everything else is a
+            // customer waiting on us, and none of this applies to that.
+            $waiting = Conversation::where('type', Conversation::TYPE_CHAT)
+                ->where('state', Conversation::STATE_PUBLISHED)
+                ->whereIn('status', [Conversation::STATUS_ACTIVE, Conversation::STATUS_PENDING])
+                ->where('last_reply_from', '!=', Conversation::PERSON_CUSTOMER)
+                ->whereNotNull('last_reply_at')
+                ->get();
 
-        foreach ($waiting as $conversation) {
-            $silent_for = $conversation->last_reply_at->diffInSeconds(now());
+            foreach ($waiting as $conversation) {
+                $silent_for = $conversation->last_reply_at->diffInSeconds(now());
 
-            if ($conversation->status == Conversation::STATUS_PENDING) {
-                if ($close_after > 0 && $silent_for >= $idle_after + $close_after) {
-                    $this->line(sprintf('  close  #%d  silent for %ds', $conversation->id, $silent_for));
-                    if (!$dry) {
-                        $conversation->changeStatus(Conversation::STATUS_CLOSED);
+                if ($conversation->status == Conversation::STATUS_PENDING) {
+                    if ($close_after > 0 && $silent_for >= $idle_after + $close_after) {
+                        $this->line(sprintf('  close  #%d  silent for %ds', $conversation->id, $silent_for));
+                        if (!$dry) {
+                            $conversation->changeStatus(Conversation::STATUS_CLOSED);
+                        }
+                        $closed++;
                     }
-                    $closed++;
+                    continue;
                 }
-                continue;
-            }
 
-            if ($idle_after > 0 && $silent_for >= $idle_after) {
-                $this->line(sprintf('  idle   #%d  silent for %ds', $conversation->id, $silent_for));
-                if (!$dry) {
-                    $conversation->changeStatus(Conversation::STATUS_PENDING);
+                if ($idle_after > 0 && $silent_for >= $idle_after) {
+                    $this->line(sprintf('  idle   #%d  silent for %ds', $conversation->id, $silent_for));
+                    if (!$dry) {
+                        $conversation->changeStatus(Conversation::STATUS_PENDING);
+                    }
+                    $marked++;
                 }
-                $marked++;
             }
         }
 
-        if ($marked || $closed) {
+        $left = $this->sweepPresence($dry);
+
+        if ($marked || $closed || $left) {
             \Log::info('GesoftLiveChat: swept chats', [
                 'marked_idle' => $marked,
                 'closed'      => $closed,
+                'left'        => $left,
                 'dry_run'     => $dry,
             ]);
         }
 
-        $this->info(sprintf('%d marked idle, %d closed%s', $marked, $closed, $dry ? ' (dry run)' : ''));
+        $this->info(sprintf('%d marked idle, %d closed, %d left%s', $marked, $closed, $left, $dry ? ' (dry run)' : ''));
 
         return 0;
+    }
+
+    /**
+     * Visitors who went away, written into their conversation once.
+     *
+     * Gone means a goodbye nobody came back from, or silence, for longer than
+     * `gone_after` — see `Support/Presence.php` for why a goodbye alone is not
+     * enough. A session whose conversation has closed is over whatever the
+     * visitor is doing, so it is marked ended here and not looked at again.
+     */
+    protected function sweepPresence($dry)
+    {
+        $gone_after = (int) config('gesoftlivechat.gone_after');
+        if ($gone_after <= 0) {
+            return 0;
+        }
+
+        $cutoff = now()->subSeconds($gone_after);
+        $left = 0;
+
+        $sessions = ChatSession::whereNull('ended_at')
+            ->whereNull('left_noted_at')
+            ->where(function ($query) use ($cutoff) {
+                $query->where('left_at', '<=', $cutoff)
+                    ->orWhere('last_seen_at', '<=', $cutoff);
+            })
+            ->get();
+
+        foreach ($sessions as $session) {
+            if (!$session->isConversationOpen()) {
+                if (!$dry) {
+                    $session->ended_at = now();
+                    $session->save();
+                }
+                continue;
+            }
+
+            if ($session->state($gone_after) !== Presence::LEFT) {
+                continue;
+            }
+
+            $this->line(sprintf('  left   #%d', $session->conversation_id));
+
+            if (!$dry) {
+                $session->note(Presence::ACTION_LEFT);
+                $session->left_noted_at = now();
+                $session->save();
+            }
+            $left++;
+        }
+
+        return $left;
     }
 }

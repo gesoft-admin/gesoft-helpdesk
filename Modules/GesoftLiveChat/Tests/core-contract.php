@@ -131,6 +131,41 @@ $contract = [
         'needs' => ['class BroadcastNotification', 'public $conversation', 'public $thread'],
         'cost'  => 'Chat messages reappear in the open bell menu and play core\'s sound on top of the module\'s.',
     ],
+    [
+        'what'  => 'a module can write and word its own line items',
+        'file'  => 'app/Thread.php',
+        'needs' => [
+            'const TYPE_LINEITEM', 'const PERSON_CUSTOMER', 'const SOURCE_TYPE_WEB',
+            'public static function create($conversation, $type, $body, $data = [], $save = true)',
+            "\$data['action_type']", "\$data['created_by_customer_id']",
+            "Eventy::filter('thread.action_text'", "Eventy::filter('thread.action_person'",
+        ],
+        'cost'  => '"Customer left / ended / came back" lines stop being written, or appear blank or signed "System".',
+    ],
+    [
+        'what'  => 'line items do not count as replies',
+        'file'  => 'app/Observers/ThreadObserver.php',
+        'needs' => ['in_array($thread->type, [Thread::TYPE_CUSTOMER, Thread::TYPE_MESSAGE])'],
+        'cost'  => 'Every "customer left" line would restart the idle clock and change who spoke last, so the sweep would close or spare the wrong chats.',
+    ],
+    [
+        'what'  => 'line items are shown through getActionText',
+        'file'  => 'resources/views/conversations/partials/thread.blade.php',
+        'needs' => ['TYPE_LINEITEM', 'getActionText('],
+        'cost'  => 'The lines are stored but the conversation shows nothing for them.',
+    ],
+    [
+        'what'  => 'chat list items carry their conversation id and name element',
+        'file'  => 'resources/views/mailboxes/partials/chat_list.blade.php',
+        'needs' => ['data-chat_id="{{ $chat->id }}"', 'class="folder-name"'],
+        'cost'  => 'The "visitor is here / left" mark disappears from the chat list.',
+    ],
+    [
+        'what'  => 'the rate limiter still counts its window in minutes',
+        'file'  => 'vendor/laravel/framework/src/Illuminate/Cache/RateLimiter.php',
+        'needs' => ['public function tooManyAttempts($key, $maxAttempts, $decayMinutes = 1)', 'public function hit($key, $decayMinutes = 1)'],
+        'cost'  => 'Laravel 5.8 changed this to seconds: the start limit would silently shrink from ten minutes to ten seconds.',
+    ],
 ];
 
 $pass = 0; $fail = 0;

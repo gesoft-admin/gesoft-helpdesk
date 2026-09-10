@@ -96,3 +96,33 @@
 .chats li.chat-item:not(.new):not(.active) .folder-name {
     opacity: .62;
 }
+
+/*
+ * Whether the visitor is still there: a small mark before the name. Filled
+ * green while they are, a hollow ring once they left, filled grey when they
+ * ended the chat themselves — three shapes, not three hues, and the tooltip on
+ * the name says it in words.
+ */
+.chats li.chat-item.gesoft-presence-here .folder-name::before,
+.chats li.chat-item.gesoft-presence-left .folder-name::before,
+.chats li.chat-item.gesoft-presence-ended .folder-name::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 6px;
+    border-radius: 50%;
+    vertical-align: 1px;
+}
+
+.chats li.chat-item.gesoft-presence-here .folder-name::before {
+    background: #2e9b5f;
+}
+
+.chats li.chat-item.gesoft-presence-left .folder-name::before {
+    box-shadow: inset 0 0 0 2px #8f9a9b;
+}
+
+.chats li.chat-item.gesoft-presence-ended .folder-name::before {
+    background: #8f9a9b;
+}

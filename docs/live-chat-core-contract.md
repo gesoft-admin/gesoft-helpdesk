@@ -40,6 +40,11 @@ Baseline: FreeScout `1.8.239`.
 | The `conversations.chats` route | `routes/web.php` | An alert for several chats at once opens one chat instead of the list. The endpoint checks for the route, so the badge survives. |
 | `NotificationSending` answered with `false` cancels a notification | `overrides/laravel/framework/src/Illuminate/Notifications/NotificationSender.php` | Every customer chat message is filed under the bell again as well as raising the alert. |
 | `WebsiteNotification` and `BroadcastNotification` exposing `$conversation` and `$thread` | `app/Notifications/` | The guard cannot recognise a chat message, so it cancels nothing; core's chat sound plays on top of the module's. |
+| `Thread::create()` taking `action_type` and `created_by_customer_id`; `thread.action_text` and `thread.action_person` filters | `app/Thread.php` | "Customer left / ended / came back" lines stop being written, or show blank or signed "System". |
+| `ThreadObserver` counting only customer and agent messages as replies | `app/Observers/ThreadObserver.php` | Every presence line would restart the idle clock and change who spoke last; the sweep would close or spare the wrong chats. |
+| Line items rendered through `getActionText()` | `resources/views/conversations/partials/thread.blade.php` | The lines are stored and the conversation shows nothing. |
+| `data-chat_id` and `.folder-name` on chat list items | `resources/views/mailboxes/partials/chat_list.blade.php` | The presence mark disappears from the chat list. |
+| `RateLimiter` decay in minutes (Laravel 5.5) | `vendor/laravel/framework/src/Illuminate/Cache/RateLimiter.php` | Laravel 5.8 switched to seconds: the start limit would shrink from ten minutes to ten seconds without an error. |
 
 ## Two behaviours that are contracts even though nothing enforces them
 

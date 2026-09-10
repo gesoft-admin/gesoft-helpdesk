@@ -6,18 +6,19 @@
 //   node Modules/GesoftLiveChat/Tests/e2e/widget-browser.mjs
 //
 // Drives Chrome over the DevTools Protocol with no packages: Node 24 has a
-// global WebSocket. Test instance only — it opens and ends real conversations
-// and closes them afterwards.
+// global WebSocket. Test instance only — it opens and ends real conversations,
+// marks agents present or away, and closes what it opened.
 //
 // What only a browser can show: which storage the token lives in, that a
 // reload keeps the conversation and a new tab does not, that Enter in the chat
-// box sends (it did not, for a day), and that closing a tab says goodbye.
+// box sends (it did not, for a day), that closing a tab says goodbye, and which
+// screen the visitor is offered when nobody is available.
 
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 const BASE = process.env.GLC_BASE.replace(/\/$/, '');
-const CDP = process.env.GLC_CDP || 'http://127.0.0.1:9222';
+const CDP = process.env.GLC_CDP || 'http://localhost:9222';
 const SQL = process.env.GLC_SQL;
 const DEMO = BASE + '/gesoft-live-chat/demo';
 const KEY = 'gesoft-live-chat-token';
@@ -28,6 +29,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sql = (q) => execSync(SQL, { input: q, encoding: 'utf8' }).trim().split('\n').filter(Boolean).map((l) => l.split('\t'));
 const one = (q) => (sql(q)[0] || [])[0];
 const sha = (t) => createHash('sha256').update(t).digest('hex');
+const agentsPresent = () => sql("insert into gesoft_live_chat_agents (user_id, last_seen_at) select id, now() from users where role=2 on duplicate key update last_seen_at=now()");
+const agentsAway = () => sql('update gesoft_live_chat_agents set last_seen_at = date_sub(now(), interval 1 hour)');
 
 let pass = 0, fail = 0;
 const opened = [];
@@ -72,7 +75,7 @@ async function waitFor(ev, expr, ms = 10000) {
   return false;
 }
 
-async function tab() {
+async function tab(query = '') {
   const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
   const S = (m, p) => send(m, p, sessionId);
@@ -84,7 +87,7 @@ async function tab() {
     return r.result.value;
   };
   const go = async () => {
-    await S('Page.navigate', { url: DEMO });
+    await S('Page.navigate', { url: DEMO + query });
     await sleep(300);
     await waitFor(ev, `!!document.querySelector('[data-gesoft-live-chat]')`, 15000);
   };
@@ -92,13 +95,17 @@ async function tab() {
   return { ev, go, close: () => send('Target.closeTarget', { targetId }) };
 }
 
-const introduce = (t, name, email, message) => t.ev(`(() => {
-  const r = ${R};
-  r.querySelector('.launcher').click();
-  r.querySelector('[name=name]').value = ${JSON.stringify(name)};
-  r.querySelector('[name=email]').value = ${JSON.stringify(email)};
-  r.querySelector('[name=message]').value = ${JSON.stringify(message)};
-  r.querySelector('.intro button').click();
+const mode = (t) => t.ev(`${R}.querySelector('.panel').getAttribute('data-mode')`);
+const openBubble = async (t, expected) => {
+  await t.ev(`${R}.querySelector('.launcher').click(); true`);
+  await waitFor(t.ev, `${R}.querySelector('.panel').getAttribute('data-mode') === ${JSON.stringify(expected)}`, 8000);
+};
+const fill = (t, screen, name, email, message) => t.ev(`(() => {
+  const s = ${R}.querySelector('.${screen}');
+  s.querySelector('[name=name]').value = ${JSON.stringify(name)};
+  s.querySelector('[name=email]').value = ${JSON.stringify(email)};
+  s.querySelector('[name=message]').value = ${JSON.stringify(message)};
+  s.querySelector('button[type=submit]').click();
   return true;
 })()`);
 
@@ -106,6 +113,7 @@ const token = (t) => t.ev(`sessionStorage.getItem(${JSON.stringify(KEY)})`);
 const conversationOf = (tok) => one(`select conversation_id from gesoft_live_chat_sessions where token_hash='${sha(tok)}'`);
 
 console.log('GesoftLiveChat — the bubble in a browser\n');
+agentsPresent();
 
 // ------------------------------------- first message, then Enter in the chat box
 const a = await tab();
@@ -113,11 +121,14 @@ await a.ev(`localStorage.setItem(${JSON.stringify(KEY)}, 'deadbeef'.repeat(4)); 
 await a.go();
 check('a token left in localStorage by an old build is removed', await a.ev(`localStorage.getItem(${JSON.stringify(KEY)})`), null);
 
-await a.ev(`${R}.querySelector('.launcher').click(); true`);
-check('a new visitor is asked who they are', await a.ev(`${R}.querySelector('.panel').classList.contains('asking')`), true);
-await a.ev(`${R}.querySelector('.launcher').click(); true`);
+await openBubble(a, 'intro');
+check('with an agent around, a new visitor is asked who they are', await mode(a), 'intro');
+check('  the header says so', await a.ev(`${R}.querySelector('.status-text').textContent`), 'Suntem online');
+check('  the page is Romanian, so the bubble is', await a.ev(`${R}.querySelector('.t-intro-title').textContent`), 'Începeți o conversație');
+check('the bot trap field is out of sight',
+  await a.ev(`${R}.querySelector('.intro .hp').getBoundingClientRect().right < 0`), true);
 
-await introduce(a, `E2E browser ${RUN}`, `e2e-browser-${RUN}@gesoft.test`, `Primul mesaj ${RUN}`);
+await fill(a, 'intro', `E2E browser ${RUN}`, `e2e-browser-${RUN}@gesoft.test`, `Primul mesaj ${RUN}`);
 await waitFor(a.ev, `!!sessionStorage.getItem(${JSON.stringify(KEY)})`);
 const tokenA = await token(a);
 const convA = tokenA && conversationOf(tokenA);
@@ -125,8 +136,10 @@ if (convA) opened.push(convA);
 check('the token is kept in the tab, 64 hex', /^[0-9a-f]{64}$/.test(tokenA || ''), true);
 check('  and not in localStorage', await a.ev(`localStorage.getItem(${JSON.stringify(KEY)})`), null);
 check('  and the server knows it only by its hash', one(`select count(*) from gesoft_live_chat_sessions where token_hash='${tokenA}'`), '0');
+check('the chat screen is shown after the introduction', await mode(a), 'chat');
 check('the End button is shown during a chat', await a.ev(`!${R}.querySelector('.end').hidden`), true);
-check("the introduction's message box is emptied after sending", await a.ev(`${R}.querySelector('[name=message]').value`), '');
+check("the introduction's message box is emptied after sending", await a.ev(`${R}.querySelector('.intro [name=message]').value`), '');
+check('the visitor sees their message with a time', await a.ev(`/\\d{2}:\\d{2}/.test(${R}.querySelector('.row.visitor .time').textContent)`), true);
 
 await a.ev(`(() => {
   const t = ${R}.querySelector('.form textarea');
@@ -141,21 +154,28 @@ check('  and the first message was not sent again', one(`select count(*) from th
 // --------------------------------------------------- a reload keeps the chat
 await a.go();
 check('after a reload the tab still has the same token', (await token(a)) === tokenA, true);
-await a.ev(`${R}.querySelector('.launcher').click(); true`);
+await openBubble(a, 'chat');
 await waitFor(a.ev, `${R}.querySelector('.log').innerText.includes('Al doilea mesaj')`, 8000);
 check('  and shows the conversation so far', await a.ev(`${R}.querySelector('.log').innerText.includes('Primul mesaj ${RUN}')`), true);
-check('  without asking who they are again', await a.ev(`${R}.querySelector('.panel').classList.contains('asking')`), false);
+check('  without asking who they are again', await mode(a), 'chat');
 
 // ---------------------------------------------------- a new tab is a new chat
 const b = await tab();
 check('a new tab has no token', await token(b), null);
-await b.ev(`${R}.querySelector('.launcher').click(); true`);
-check('  and asks who the visitor is', await b.ev(`${R}.querySelector('.panel').classList.contains('asking')`), true);
+await openBubble(b, 'intro');
+check('  and asks who the visitor is', await mode(b), 'intro');
 await b.close();
+
+// ------------------------------------------------------------- English, on request
+const en = await tab('?lang=en');
+await openBubble(en, 'intro');
+check('?lang=en gives an English bubble', await en.ev(`${R}.querySelector('.t-intro-title').textContent`), 'Start a conversation');
+await en.close();
 
 // ------------------------------------------------- closing a tab says goodbye
 const c = await tab();
-await introduce(c, `E2E inchidere ${RUN}`, `e2e-close-${RUN}@gesoft.test`, `Inchid tabul ${RUN}`);
+await openBubble(c, 'intro');
+await fill(c, 'intro', `E2E inchidere ${RUN}`, `e2e-close-${RUN}@gesoft.test`, `Inchid tabul ${RUN}`);
 await waitFor(c.ev, `!!sessionStorage.getItem(${JSON.stringify(KEY)})`);
 const tokenC = await token(c);
 const convC = tokenC && conversationOf(tokenC);
@@ -166,15 +186,38 @@ check('closing the tab records a goodbye', one(`select left_at is not null from 
 check('  but writes nothing into the conversation yet', one(`select count(*) from threads where conversation_id=${convC} and type=4`), '0');
 
 // ------------------------------------------------------------- ending on purpose
-await a.ev(`window.confirm = () => true; ${R}.querySelector('.end').click(); true`);
+await a.ev(`${R}.querySelector('.end').click(); true`);
+check('End asks inside the bubble first', await a.ev(`!${R}.querySelector('.confirm').hidden`), true);
+await a.ev(`${R}.querySelector('.confirm-no').click(); true`);
+check('  and "No" keeps the chat', (await token(a)) === tokenA, true);
+await a.ev(`${R}.querySelector('.end').click(); ${R}.querySelector('.confirm-yes').click(); true`);
 await sleep(2000);
-check('ending removes the token from the tab', await token(a), null);
+check('"Yes" removes the token from the tab', await token(a), null);
 check('  tells the visitor', await a.ev(`${R}.querySelector('.log').innerText.includes('Ați încheiat conversația')`), true);
 check('  hides the End button', await a.ev(`${R}.querySelector('.end').hidden`), true);
 check('  writes one line for the operator', one(`select count(*) from threads where conversation_id=${convA} and type=4 and action_type=100`), '1');
 check('  and leaves the conversation open', ['1', '2'].includes(one(`select status from conversations where id=${convA}`)), true);
 const after = await (await fetch(`${BASE}/gesoft-live-chat/poll?token=${tokenA}&since=0`)).json();
 check('the ended token opens nothing', after.closed, true);
+await a.ev(`(() => { const t = ${R}.querySelector('.form textarea'); t.value = 'Inca ceva ${RUN}'; ${R}.querySelector('.form').dispatchEvent(new Event('submit', { cancelable: true })); return true; })()`);
+check('writing again after ending goes back to the introduction', await mode(a), 'intro');
+check('  with what they wrote carried over', await a.ev(`${R}.querySelector('.intro [name=message]').value`), `Inca ceva ${RUN}`);
+
+// ------------------------------------------------------ nobody available: the form
+agentsAway();
+const d = await tab();
+await openBubble(d, 'offline');
+check('with nobody around, the bubble offers the message form', await mode(d), 'offline');
+check('  and the header says so', await d.ev(`${R}.querySelector('.status-text').textContent`), 'Lăsați-ne un mesaj');
+await fill(d, 'offline', `E2E offline ${RUN}`, `e2e-offline-${RUN}@gesoft.test`, `Mesaj offline ${RUN}`);
+await waitFor(d.ev, `${R}.querySelector('.panel').getAttribute('data-mode') === 'done'`, 8000);
+check('  sending it thanks the visitor', await mode(d), 'done');
+const convD = one(`select conversation_id from threads where body like 'Mesaj offline ${RUN}%' order by id desc limit 1`);
+if (convD) opened.push(convD);
+check('  and it became an email conversation', one(`select type from conversations where id=${convD}`), '1');
+check('  with no chat token left in the tab', await token(d), null);
+await d.close();
+agentsPresent();
 
 check('no script errors in any page', errors, []);
 

@@ -24,8 +24,14 @@ Route::group([
     // Preflight, so the bubble can live on a customer's own domain.
     Route::options('/{any}', 'ChatController@preflight')->where('any', '.*');
 
+    // Whether anybody is available: a chat, or the message form.
+    Route::get('/status', 'ChatController@status')->name('gesoftlivechat.status');
+
     // First message: mints the customer, the conversation and the session.
     Route::post('/start', 'ChatController@start')->name('gesoftlivechat.start');
+
+    // A message left while nobody is available; becomes an email conversation.
+    Route::post('/offline', 'ChatController@offline')->name('gesoftlivechat.offline');
 
     // Every message after that.
     Route::post('/send', 'ChatController@send')->name('gesoftlivechat.send');
@@ -65,4 +71,16 @@ Route::group([
         'uses'    => 'AgentController@nudge',
         'laroute' => true,
     ])->name('gesoftlivechat.agent.nudge');
+
+    Route::post('/gesoft-live-chat/agent/{conversation_id}/block', [
+        'uses' => 'AgentController@block',
+    ])->name('gesoftlivechat.agent.block');
+
+    Route::get('/gesoft-live-chat/blocks', [
+        'uses' => 'AgentController@blocks',
+    ])->name('gesoftlivechat.agent.blocks');
+
+    Route::post('/gesoft-live-chat/blocks/{id}/delete', [
+        'uses' => 'AgentController@unblock',
+    ])->name('gesoftlivechat.agent.unblock');
 });

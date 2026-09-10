@@ -166,6 +166,42 @@ $contract = [
         'needs' => ['public function tooManyAttempts($key, $maxAttempts, $decayMinutes = 1)', 'public function hit($key, $decayMinutes = 1)'],
         'cost'  => 'Laravel 5.8 changed this to seconds: the start limit would silently shrink from ten minutes to ten seconds.',
     ],
+    [
+        'what'  => 'modules can add to the Manage menu',
+        'file'  => 'resources/views/layouts/app.blade.php',
+        'needs' => ["@action('menu.manage.append')"],
+        'cost'  => 'Manage → Blocked chat visitors disappears; blocks can no longer be lifted before they expire.',
+    ],
+    [
+        'what'  => 'modules can add conversation actions',
+        'file'  => 'resources/views/conversations/view.blade.php',
+        'needs' => ['conversation.append_action_buttons'],
+        'cost'  => '"Ask if the customer is still there" and "Block visitor…" disappear from More Actions.',
+    ],
+    [
+        'what'  => 'a mailbox can list who has access to it',
+        'file'  => 'app/Mailbox.php',
+        'needs' => ['public function userIdsHavingAccess()'],
+        'cost'  => 'The bubble cannot tell whether anybody is available and breaks instead of offering the message form.',
+    ],
+    [
+        'what'  => 'a module can ship JSON translations',
+        'file'  => 'vendor/laravel/framework/src/Illuminate/Support/ServiceProvider.php',
+        'needs' => ['function loadJsonTranslationsFrom($path)'],
+        'cost'  => 'The module fails to boot.',
+    ],
+    [
+        'what'  => 'an agent message knows who wrote it',
+        'file'  => 'app/Thread.php',
+        'needs' => ['public function created_by_user_cached()'],
+        'cost'  => 'The bubble stops showing the agent\'s first name above their messages.',
+    ],
+    [
+        'what'  => 'a web message can become an email conversation',
+        'file'  => 'app/Conversation.php',
+        'needs' => ['const TYPE_EMAIL', 'const SOURCE_TYPE_WEB'],
+        'cost'  => 'A message left while nobody is available can no longer be turned into a conversation answered by email.',
+    ],
 ];
 
 $pass = 0; $fail = 0;

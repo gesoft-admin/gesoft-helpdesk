@@ -38,7 +38,7 @@ class ChatSession extends Model
      * Returns `[$session, $token]`. The token is handed to the visitor once and
      * not kept.
      */
-    public static function open(Conversation $conversation)
+    public static function open(Conversation $conversation, $ip = null, $lang = null)
     {
         $token = Presence::newToken();
 
@@ -46,9 +46,26 @@ class ChatSession extends Model
             'conversation_id' => $conversation->id,
             'token_hash'      => Presence::hash($token),
             'last_seen_at'    => now(),
+            // What an agent can block if they have to, the way Live Helper
+            // Chat keeps the visitor's address on the chat.
+            'ip'              => \Modules\GesoftLiveChat\Support\Blocking::normalizeIp($ip),
+            'lang'            => $lang,
         ]);
 
         return [$session, $token];
+    }
+
+    /**
+     * The language a conversation's visitor reads, for messages written to
+     * them automatically: the newest session's, or the configured default.
+     */
+    public static function langFor($conversation)
+    {
+        $lang = $conversation
+            ? self::where('conversation_id', $conversation->id)->orderBy('id', 'desc')->value('lang')
+            : null;
+
+        return Presence::lang($lang, (string) config('gesoftlivechat.visitor_lang', 'ro'));
     }
 
     public static function findByToken($token)

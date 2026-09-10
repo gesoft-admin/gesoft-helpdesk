@@ -56,5 +56,18 @@ check('no goodbye, but silent for longer than the limit: left', Presence::state(
 check('background tab polling once a minute: here', Presence::state($now - 65, null, null, $now, 120), Presence::HERE);
 check('ended beats everything', Presence::state($now, null, $now - 1, $now, 120), Presence::ENDED);
 
+// Language of the bubble and of automatic messages.
+check('ro is kept', Presence::lang('ro', 'en'), 'ro');
+check('a browser locale is reduced to its language', Presence::lang('en-GB', 'ro'), 'en');
+check('uppercase is accepted', Presence::lang('RO', 'en'), 'ro');
+check('a language with no words falls back to the default', Presence::lang('de', 'ro'), 'ro');
+check('nothing falls back to the default', Presence::lang(null, 'ro'), 'ro');
+
+// "Somebody will be with you shortly."
+check('not before the wait is up', Presence::shouldTellToWait($now - 30, false, $now, 60), false);
+check('once the wait is up and nobody answered', Presence::shouldTellToWait($now - 60, false, $now, 60), true);
+check('not once an agent has answered', Presence::shouldTellToWait($now - 600, true, $now, 60), false);
+check('never when switched off', Presence::shouldTellToWait($now - 600, false, $now, 0), false);
+
 printf("\n%d passed, %d failed\n", $pass, $fail);
 exit($fail ? 1 : 0);

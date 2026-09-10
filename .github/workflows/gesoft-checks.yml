@@ -50,6 +50,11 @@ jobs:
       - name: Live chat session rules
         run: php Modules/GesoftLiveChat/Tests/presence.php
 
+      # Ours, and pure: how blocked addresses and emails are compared and when
+      # a block ends.
+      - name: Live chat blocking rules
+        run: php Modules/GesoftLiveChat/Tests/blocking.php
+
       # Not ours at all: this reads FreeScout's own source and fails when the
       # symbols and hooks the live chat module borrows have moved. It is the
       # only check that can see an upstream merge break chat, because our own

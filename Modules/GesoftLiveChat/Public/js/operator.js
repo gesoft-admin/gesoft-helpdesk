@@ -1,6 +1,6 @@
 /**
  * Tells an agent that somebody is waiting in a chat, from anywhere in the
- * interface.
+ * interface, and carries the chat actions that need a browser.
  *
  * FreeScout does not. Its Chats link in the sidebar carries no count, and the
  * realtime channel that announces a new chat is subscribed to only when the
@@ -9,15 +9,18 @@
  * that somebody is waiting right now, is invisible to an agent reading a
  * ticket.
  *
- * This adds three things and patches no core file:
+ * This adds, and patches no core file:
  *
- *   - a count on the Chats link, and a highlight while it is non-zero;
- *   - a sound and a browser notification when a new chat arrives, on any page;
- *   - an immediate update when core's own realtime event fires, so the badge
- *     does not wait for the next poll.
+ *   - a count on the Chats link and next to the bell;
+ *   - an alert that opens the chat, a sound, and a browser notification;
+ *   - whether each chat's visitor is still there, as a mark in the chat list;
+ *   - "are you still there?" and the block dialog, from More Actions.
+ *
+ * Words follow the agent's own interface language, read from the page core
+ * rendered; English is the fallback.
  *
  * It reuses what core already loads — the Polycast connection, the audio cue,
- * the Push library — rather than opening a second channel for the same news.
+ * the Push library, Bootstrap's modal — rather than bringing its own.
  */
 (function ($) {
     'use strict';
@@ -25,8 +28,41 @@
     // The floor, not the mechanism: the realtime subscription below answers
     // within a second. Ten rather than twenty because this is how long an agent
     // can be unaware that somebody is waiting when the subscription is not
-    // available, and twenty seconds of that is too long.
+    // available, and twenty seconds of that is too long. It is also the agents'
+    // heartbeat, which is what tells the bubble somebody is there.
     var POLL_MS = 10000;
+
+    var WORDS = {
+        en: {
+            newFrom: 'New message from {name}',
+            newChat: 'New chat message',
+            several: '{n} chats with new messages',
+            clickToOpen: ' — click to open',
+            open: 'Open',
+            pushList: 'Open the chat list.',
+            pushWaiting: 'A visitor is waiting for an answer.',
+            activeChats: 'Active chats',
+            here: 'The customer is in the chat',
+            left: 'The customer left the chat',
+            ended: 'The customer ended the chat',
+            failed: 'That did not work. Try again.'
+        },
+        ro: {
+            newFrom: 'Mesaj nou de la {name}',
+            newChat: 'Mesaj nou în chat',
+            several: '{n} chaturi cu mesaje noi',
+            clickToOpen: ' — click pentru a deschide',
+            open: 'Deschide',
+            pushList: 'Deschide lista de chaturi.',
+            pushWaiting: 'Un vizitator așteaptă un răspuns.',
+            activeChats: 'Chaturi active',
+            here: 'Clientul este în chat',
+            left: 'Clientul a părăsit chatul',
+            ended: 'Clientul a încheiat chatul',
+            failed: 'Nu a funcționat. Încercați din nou.'
+        }
+    };
+    var T = WORDS[String(document.documentElement.lang || 'en').slice(0, 2).toLowerCase()] || WORDS.en;
 
     var url = null;
     var known_latest = null;
@@ -46,6 +82,10 @@
         } catch (e) {}
 
         return '';
+    }
+
+    function csrf() {
+        return $('meta[name="csrf-token"]').attr('content');
     }
 
     function endpoint() {
@@ -80,18 +120,19 @@
         if (!item.length) {
             item = $(
                 '<li class="dropdown gesoft-chat-header">' +
-                '  <a href="#" class="dropdown-toggle-icon" title="Chaturi active">' +
+                '  <a href="#" class="dropdown-toggle-icon">' +
                 '    <i class="glyphicon glyphicon-comment"></i>' +
                 '    <small class="gesoft-chat-header-count"></small>' +
                 '  </a>' +
                 '</li>'
             );
+            item.find('a').attr('title', T.activeChats);
             bar.prepend(item);
         }
 
         item.find('.gesoft-chat-header-count').text(count);
         if (mailbox_id) {
-            item.find('a').attr('href', Vars.public_url + '/mailbox/' + mailbox_id + '/chats');
+            item.find('a').attr('href', base() + '/mailbox/' + mailbox_id + '/chats');
         }
     }
 
@@ -137,8 +178,8 @@
         // so open the list and let the agent choose.
         var target = several ? (res.list_url || res.latest_url) : (res.latest_url || res.list_url);
         var title = several
-            ? res.new_conversations + ' chaturi cu mesaje noi'
-            : (res.latest_name ? 'Mesaj nou de la ' + res.latest_name : 'Mesaj nou în chat');
+            ? T.several.replace('{n}', res.new_conversations)
+            : (res.latest_name ? T.newFrom.replace('{name}', res.latest_name) : T.newChat);
 
         // Core's own cue, so chat sounds like the rest of the application
         // rather than like a second product bolted on.
@@ -151,14 +192,14 @@
         // told about is the failure this whole file exists to prevent.
         if (typeof showFloatingAlert === 'function') {
             try {
-                showFloatingAlert('success', target ? title + ' — click pentru a deschide' : title);
+                showFloatingAlert('success', target ? title + T.clickToOpen : title);
 
                 // Core's alert is plain text and not a link. It appends to the
                 // body and returns, so the last one is the one just made.
                 if (target) {
                     $('.alert-floating').last()
                         .addClass('gesoft-chat-alert')
-                        .attr('title', 'Deschide')
+                        .attr('title', T.open)
                         .on('click', function () { window.location.href = target; });
                 }
             } catch (e) {}
@@ -168,7 +209,7 @@
 
         try {
             Push.create(title, {
-                body: several ? 'Deschide lista de chaturi.' : 'Un vizitator așteaptă un răspuns.',
+                body: several ? T.pushList : T.pushWaiting,
                 timeout: 8000,
                 onClick: function () {
                     window.focus();
@@ -179,15 +220,10 @@
         } catch (e) {}
     }
 
-    // Whether the visitor in each chat is still there, as a dot before the
+    // Whether the visitor in each chat is still there, as a mark before the
     // name with the same thing said in its tooltip, so it never rests on colour
     // alone. The conversation itself carries a line when somebody leaves.
     var presence = {};
-    var PRESENCE_TITLE = {
-        here: 'Clientul este în chat',
-        left: 'Clientul a părăsit chatul',
-        ended: 'Clientul a încheiat chatul'
-    };
 
     function paintPresence() {
         $('.chats li.chat-item[data-chat_id]').each(function () {
@@ -197,7 +233,7 @@
             if (!state) { return; }
 
             li.addClass('gesoft-presence-' + state);
-            li.find('.folder-name').first().attr('title', PRESENCE_TITLE[state] || '');
+            li.find('.folder-name').first().attr('title', T[state] || '');
         });
     }
 
@@ -288,11 +324,84 @@
         if (!id || link.data('busy')) { return; }
         link.data('busy', true);
 
-        var u = base() + '/gesoft-live-chat/agent/' + id + '/nudge';
-
-        $.post(u, { _token: $('meta[name="csrf-token"]').attr('content') })
+        $.post(base() + '/gesoft-live-chat/agent/' + id + '/nudge', { _token: csrf() })
             .done(function () { window.location.reload(); })
             .fail(function () { link.data('busy', false); });
+    });
+
+    // "Block visitor…": a small dialog, built here from labels the server
+    // translated. Every label goes in with .text(), never as markup.
+    $(document).on('click', '.gesoft-chat-block-open', function (e) {
+        e.preventDefault();
+
+        var link = $(this), id = link.data('conversation-id'), L = link.data('labels') || {};
+        if (!id) { return; }
+
+        $('#gesoft-chat-block-modal').remove();
+
+        var modal = $(
+            '<div class="modal fade" id="gesoft-chat-block-modal" tabindex="-1" role="dialog">' +
+            ' <div class="modal-dialog modal-sm" role="document"><div class="modal-content">' +
+            '  <div class="modal-header">' +
+            '   <button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span></button>' +
+            '   <h4 class="modal-title"></h4>' +
+            '  </div>' +
+            '  <div class="modal-body">' +
+            '   <p class="text-help gesoft-block-help"></p>' +
+            '   <div class="checkbox"><label><input type="checkbox" name="block_ip" checked> <span class="gesoft-l-ip"></span></label></div>' +
+            '   <div class="checkbox"><label><input type="checkbox" name="block_email" checked> <span class="gesoft-l-email"></span></label></div>' +
+            '   <div class="form-group"><label class="control-label gesoft-l-for"></label><select class="form-control" name="days"></select></div>' +
+            '   <div class="form-group"><label class="control-label gesoft-l-reason"></label><input type="text" class="form-control" name="reason" maxlength="191"></div>' +
+            '   <p class="text-danger gesoft-block-error"></p>' +
+            '  </div>' +
+            '  <div class="modal-footer">' +
+            '   <button type="button" class="btn btn-default gesoft-block-cancel" data-dismiss="modal"></button>' +
+            '   <button type="button" class="btn btn-danger gesoft-block-submit"></button>' +
+            '  </div>' +
+            ' </div></div>' +
+            '</div>'
+        );
+
+        modal.find('.modal-title').text(L.title || '');
+        modal.find('.gesoft-block-help').text(L.help || '');
+        modal.find('.gesoft-l-ip').text(L.ip || '');
+        modal.find('.gesoft-l-email').text(L.email || '');
+        modal.find('.gesoft-l-for').text(L['for'] || '');
+        modal.find('.gesoft-l-reason').text(L.reason || '');
+        modal.find('.gesoft-block-cancel').text(L.cancel || '');
+        modal.find('.gesoft-block-submit').text(L.submit || '');
+
+        var select = modal.find('select[name="days"]');
+        [['1', L.d1], ['7', L.d7], ['30', L.d30], ['0', L.forever]].forEach(function (o) {
+            select.append($('<option>').val(o[0]).text(o[1] || o[0]));
+        });
+
+        modal.on('click', '.gesoft-block-submit', function () {
+            var button = $(this), error = modal.find('.gesoft-block-error');
+            button.prop('disabled', true);
+            error.text('');
+
+            $.post(base() + '/gesoft-live-chat/agent/' + id + '/block', {
+                _token: csrf(),
+                block_ip: modal.find('input[name="block_ip"]').is(':checked') ? 1 : 0,
+                block_email: modal.find('input[name="block_email"]').is(':checked') ? 1 : 0,
+                days: select.val(),
+                reason: modal.find('input[name="reason"]').val()
+            }).done(function (res) {
+                if (res && res.status === 'success') {
+                    window.location.reload();
+                    return;
+                }
+                button.prop('disabled', false);
+                error.text((res && res.msg) || T.failed);
+            }).fail(function (xhr) {
+                button.prop('disabled', false);
+                error.text((xhr.responseJSON && xhr.responseJSON.msg) || T.failed);
+            });
+        });
+
+        $('body').append(modal);
+        modal.modal('show');
     });
 
     $(function () {

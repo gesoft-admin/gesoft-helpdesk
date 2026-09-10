@@ -9,15 +9,18 @@ use App\Thread;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Modules\GesoftLiveChat\Entities\AgentPresence;
+use Modules\GesoftLiveChat\Entities\ChatBlock;
 use Modules\GesoftLiveChat\Entities\ChatSession;
+use Modules\GesoftLiveChat\Support\Presence;
 
 /**
  * The visitor's half of live chat.
  *
- * Start, send, poll, end and leave, and a demo page. No session, no CSRF, no
- * login: a customer on their own website has none of those. The only
- * credential is a token minted at `start`, and it addresses exactly one
- * conversation.
+ * Start, send, poll, end, leave, status and the message form for when nobody is
+ * available, and a demo page. No session, no CSRF, no login: a customer on
+ * their own website has none of those. The only credential is a token minted at
+ * `start`, and it addresses exactly one conversation.
  *
  * Three rules run through everything here, and all of them are about the fact
  * that this is the one part of the system a stranger can reach.
@@ -37,6 +40,9 @@ use Modules\GesoftLiveChat\Entities\ChatSession;
  * stored, because the agent's browser renders thread bodies as HTML. What the
  * agent writes is flattened to text before it is sent out, because the bubble
  * has no business rendering markup either.
+ *
+ * Every refusal carries a `code` as well as a sentence, so the bubble can say it
+ * in the visitor's own language.
  */
 class ChatController extends Controller
 {
@@ -56,6 +62,16 @@ class ChatController extends Controller
     }
 
     /**
+     * Whether anybody is available to chat, so the bubble can offer a chat or
+     * the message form. Live Helper Chat's widget asks the same before it
+     * decides what to show.
+     */
+    public function status(Request $request)
+    {
+        return $this->ok($request, ['online' => AgentPresence::anyoneAvailable($this->mailbox())]);
+    }
+
+    /**
      * Open a conversation with the visitor's first message.
      *
      * Returns the token the bubble keeps for this tab. Calling it again with a
@@ -64,9 +80,11 @@ class ChatController extends Controller
      */
     public function start(Request $request)
     {
+        $lang = $this->lang($request);
+
         $body = $this->body($request);
         if ($body === null) {
-            return $this->fail($request, __('Please write a message first.'));
+            return $this->fail($request, __('Please write a message first.', [], $lang), 400, 'empty');
         }
 
         $session = $this->session($request);
@@ -78,20 +96,28 @@ class ChatController extends Controller
         if (!$mailbox) {
             \Log::error(self::LOG_PREFIX.': no mailbox configured to receive chats');
 
-            return $this->fail($request, __('Chat is not available right now.'), 503);
+            return $this->fail($request, __('Chat is not available right now.', [], $lang), 503, 'unavailable');
+        }
+
+        if ($refused = $this->refuseBots($request, $lang)) {
+            return $refused;
         }
 
         $email = $this->email($request);
 
         if (!$email && config('gesoftlivechat.require_email')) {
-            return $this->fail($request, __('Please leave an email address so we can reach you.'), 422);
+            return $this->fail($request, __('Please leave an email address so we can reach you.', [], $lang), 422, 'email_required');
+        }
+
+        if ($refused = $this->refuseBlocked($request, $email, $mailbox, $lang)) {
+            return $refused;
         }
 
         if ($this->tooManyStarts($request)) {
-            return $this->fail($request, __('Too many conversations were started from your connection. Please try again in a few minutes.'), 429);
+            return $this->fail($request, __('Too many conversations were started from your connection. Please try again in a few minutes.', [], $lang), 429, 'too_many');
         }
 
-        $customer = $this->customer($email, $request);
+        $customer = $this->customer($email, $request, $lang);
 
         // Marks the customer as reachable on this channel, which is what core
         // reads to show the channel on their profile. The id says which
@@ -120,13 +146,13 @@ class ChatController extends Controller
         if (!$result) {
             \Log::error(self::LOG_PREFIX.': Conversation::create() created no thread');
 
-            return $this->fail($request, __('Chat is not available right now.'), 503);
+            return $this->fail($request, __('Chat is not available right now.', [], $lang), 503, 'unavailable');
         }
 
         $conversation = $result['conversation'];
         $this->makeActive($conversation);
 
-        list(, $token) = ChatSession::open($conversation);
+        list(, $token) = ChatSession::open($conversation, $request->ip(), $lang);
 
         \Log::info(self::LOG_PREFIX.': chat opened', [
             'conversation_id' => $conversation->id,
@@ -140,13 +166,86 @@ class ChatController extends Controller
     }
 
     /**
+     * A message left while nobody is available to chat.
+     *
+     * It becomes an ordinary email conversation, answered by email like any
+     * other — which is what Live Helper Chat's offline form does too. An email
+     * address is therefore required whatever `require_email` says: without one
+     * the answer has nowhere to go.
+     *
+     * Same protections as `start`: the bot trap, blocks and the start limit.
+     */
+    public function offline(Request $request)
+    {
+        $lang = $this->lang($request);
+
+        $body = $this->body($request);
+        if ($body === null) {
+            return $this->fail($request, __('Please write a message first.', [], $lang), 400, 'empty');
+        }
+
+        $mailbox = $this->mailbox();
+        if (!$mailbox) {
+            return $this->fail($request, __('Chat is not available right now.', [], $lang), 503, 'unavailable');
+        }
+
+        if ($refused = $this->refuseBots($request, $lang)) {
+            return $refused;
+        }
+
+        $email = $this->email($request);
+        if (!$email) {
+            return $this->fail($request, __('Please leave an email address so we can reach you.', [], $lang), 422, 'email_required');
+        }
+
+        if ($refused = $this->refuseBlocked($request, $email, $mailbox, $lang)) {
+            return $refused;
+        }
+
+        if ($this->tooManyStarts($request)) {
+            return $this->fail($request, __('Too many conversations were started from your connection. Please try again in a few minutes.', [], $lang), 429, 'too_many');
+        }
+
+        $customer = $this->customer($email, $request, $lang);
+
+        $result = Conversation::create(
+            [
+                'type'        => Conversation::TYPE_EMAIL,
+                'subject'     => Conversation::subjectFromText($body),
+                'mailbox_id'  => $mailbox->id,
+                'source_via'  => Conversation::PERSON_CUSTOMER,
+                'source_type' => Conversation::SOURCE_TYPE_WEB,
+                'state'       => Conversation::STATE_PUBLISHED,
+            ],
+            [[
+                'type'  => Thread::TYPE_CUSTOMER,
+                'body'  => $body,
+                'state' => Thread::STATE_PUBLISHED,
+            ]],
+            $customer
+        );
+
+        if (!$result) {
+            return $this->fail($request, __('Chat is not available right now.', [], $lang), 503, 'unavailable');
+        }
+
+        \Log::info(self::LOG_PREFIX.': message left while nobody was available', [
+            'conversation_id' => $result['conversation']->id,
+        ]);
+
+        return $this->ok($request, ['left' => true]);
+    }
+
+    /**
      * Append a message to the visitor's open conversation.
      */
     public function send(Request $request)
     {
+        $lang = $this->lang($request);
+
         $body = $this->body($request);
         if ($body === null) {
-            return $this->fail($request, __('Please write a message first.'));
+            return $this->fail($request, __('Please write a message first.', [], $lang), 400, 'empty');
         }
 
         $session = $this->session($request);
@@ -154,7 +253,7 @@ class ChatController extends Controller
             // Deliberately the same answer for an unknown token, an ended
             // session and a closed conversation: a caller probing tokens learns
             // nothing from the difference.
-            return $this->fail($request, __('This conversation is no longer open.'), 404, ['closed' => true]);
+            return $this->fail($request, __('This conversation is no longer open.', [], $lang), 404, 'closed', ['closed' => true]);
         }
 
         $conversation = $session->conversation;
@@ -181,6 +280,11 @@ class ChatController extends Controller
      * A closed conversation still answers with what is left to read — the
      * agent's last words usually arrive together with the close — and says it
      * is closed. After that the token is good for nothing.
+     *
+     * `notice` asks the bubble to tell a visitor who has waited `wait_after`
+     * seconds without an answer that somebody will be with them, or that
+     * nobody is available right now. It is worked out here on every poll and
+     * never written into the conversation.
      */
     public function poll(Request $request)
     {
@@ -204,23 +308,31 @@ class ChatController extends Controller
 
         $messages = [];
         foreach ($threads as $thread) {
+            $agent = $thread->type == Thread::TYPE_MESSAGE;
             $messages[] = [
-                'id'   => $thread->id,
-                'from' => $thread->type == Thread::TYPE_CUSTOMER ? 'visitor' : 'agent',
-                'body' => $this->flatten($thread->body),
-                'at'   => $thread->created_at ? $thread->created_at->toIso8601String() : null,
+                'id'     => $thread->id,
+                'from'   => $agent ? 'agent' : 'visitor',
+                // First name only: enough for the visitor to know who they are
+                // talking to, nothing an agent would rather keep to themselves.
+                'author' => $agent && $thread->created_by_user_cached ? $thread->created_by_user_cached->first_name : null,
+                'body'   => $this->flatten($thread->body),
+                'at'     => $thread->created_at ? $thread->created_at->toIso8601String() : null,
             ];
         }
 
         $open = $session->canWrite();
+        $notice = null;
+
         if ($open) {
             $session->seen();
+            $notice = $this->notice($conversation);
         }
 
         return $this->ok($request, [
             'messages' => $messages,
             'since'    => $threads->count() ? $threads->last()->id : $since,
             'closed'   => !$open,
+            'notice'   => $notice,
         ]);
     }
 
@@ -242,7 +354,7 @@ class ChatController extends Controller
             $session->save();
 
             if ($session->isConversationOpen()) {
-                $session->note(\Modules\GesoftLiveChat\Support\Presence::ACTION_ENDED);
+                $session->note(Presence::ACTION_ENDED);
             }
         }
 
@@ -301,6 +413,18 @@ class ChatController extends Controller
         return $id ? Mailbox::find($id) : Mailbox::orderBy('id')->first();
     }
 
+    /** The language the bubble is speaking, from what it sent. */
+    protected function lang(Request $request)
+    {
+        $raw = $request->input('lang');
+        if ($raw === null) {
+            $json = json_decode((string) $request->getContent(), true);
+            $raw = is_array($json) ? ($json['lang'] ?? null) : null;
+        }
+
+        return Presence::lang($raw, (string) config('gesoftlivechat.visitor_lang', 'ro'));
+    }
+
     /**
      * The visitor's session, or null.
      *
@@ -317,6 +441,44 @@ class ChatController extends Controller
         }
 
         return ChatSession::findByToken($token);
+    }
+
+    /**
+     * The bot trap. The bubble's forms carry a field no person can see or
+     * reach with the keyboard; software that fills in every field fills in
+     * that one too. The answer is the ordinary "not available" so the script
+     * learns nothing about why.
+     */
+    protected function refuseBots(Request $request, $lang)
+    {
+        if (trim((string) $request->input('company', '')) === '') {
+            return null;
+        }
+
+        \Log::info(self::LOG_PREFIX.': bot trap filled, request refused');
+
+        return $this->fail($request, __('Chat is not available right now.', [], $lang), 422, 'unavailable');
+    }
+
+    /**
+     * A blocked address or email starts nothing. Like Live Helper Chat's ban
+     * message, the refusal points at another way to reach us rather than
+     * explaining the block.
+     */
+    protected function refuseBlocked(Request $request, $email, $mailbox, $lang)
+    {
+        if (!ChatBlock::applies($request->ip(), $email)) {
+            return null;
+        }
+
+        \Log::info(self::LOG_PREFIX.': blocked visitor refused');
+
+        $contact = $mailbox ? (string) $mailbox->email : '';
+        $message = $contact !== ''
+            ? __('Chat is not available. You can write to us at :email.', ['email' => $contact], $lang)
+            : __('Chat is not available. Please contact us another way.', [], $lang);
+
+        return $this->fail($request, $message, 403, 'blocked', ['contact' => $contact]);
     }
 
     /**
@@ -347,6 +509,38 @@ class ChatController extends Controller
         $limiter->hit($key, $minutes);
 
         return false;
+    }
+
+    /**
+     * "Somebody will be with you shortly", or "nobody is available right now",
+     * once the visitor has waited without an answer.
+     */
+    protected function notice(Conversation $conversation)
+    {
+        $wait_after = (int) config('gesoftlivechat.wait_after');
+        if ($wait_after <= 0) {
+            return null;
+        }
+
+        $agent_replied = $conversation->threads()
+            ->where('type', Thread::TYPE_MESSAGE)
+            ->where('state', Thread::STATE_PUBLISHED)
+            ->exists();
+        if ($agent_replied) {
+            return null;
+        }
+
+        $first = $conversation->threads()
+            ->where('type', Thread::TYPE_CUSTOMER)
+            ->orderBy('id')
+            ->first();
+        $first_at = $first && $first->created_at ? $first->created_at->getTimestamp() : null;
+
+        if (!Presence::shouldTellToWait($first_at, false, time(), $wait_after)) {
+            return null;
+        }
+
+        return AgentPresence::anyoneAvailable($conversation->mailbox) ? 'waiting' : 'nobody_available';
     }
 
     /**
@@ -392,9 +586,9 @@ class ChatController extends Controller
      * conversations for the agent, and it never gives the visitor access to
      * any of them.
      */
-    protected function customer($email, Request $request)
+    protected function customer($email, Request $request, $lang)
     {
-        $data = ['first_name' => $this->name($request)];
+        $data = ['first_name' => $this->name($request, $lang)];
 
         $phone = trim(strip_tags((string) $request->input('phone', '')));
         if ($phone !== '') {
@@ -422,12 +616,12 @@ class ChatController extends Controller
         return filter_var($email, FILTER_VALIDATE_EMAIL) ? mb_substr($email, 0, 191) : null;
     }
 
-    protected function name(Request $request)
+    protected function name(Request $request, $lang)
     {
         $name = trim((string) $request->input('name', ''));
         $name = mb_substr(strip_tags($name), 0, 40);
 
-        return $name !== '' ? $name : __('Website visitor');
+        return $name !== '' ? $name : __('Website visitor', [], $lang);
     }
 
     /**
@@ -450,12 +644,13 @@ class ChatController extends Controller
         return $this->cors($request, response()->json(['status' => 'success'] + $data));
     }
 
-    protected function fail(Request $request, $message, $code = 400, array $extra = [])
+    protected function fail(Request $request, $message, $status = 400, $code = 'error', array $extra = [])
     {
         return $this->cors($request, response()->json([
             'status' => 'error',
+            'code'   => $code,
             'msg'    => $message,
-        ] + $extra, $code));
+        ] + $extra, $status));
     }
 
     /**

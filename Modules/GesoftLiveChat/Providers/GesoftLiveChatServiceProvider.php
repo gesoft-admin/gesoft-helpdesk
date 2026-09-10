@@ -3,13 +3,15 @@
 namespace Modules\GesoftLiveChat\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Modules\GesoftLiveChat\Support\Presence;
 
 if (!defined('GESOFT_LIVE_CHAT_MODULE')) {
     define('GESOFT_LIVE_CHAT_MODULE', 'gesoftlivechat');
 }
 
 /**
- * Turns on FreeScout's own chat machinery by registering a channel.
+ * Turns on FreeScout's own chat machinery by registering a channel, and adds
+ * what core does not have.
  *
  * FreeScout 1.8.239 already contains the operator half of live chat — the
  * Chats folder, Chat Mode, the chat list, the realtime refresh and the audio
@@ -19,9 +21,9 @@ if (!defined('GESOFT_LIVE_CHAT_MODULE')) {
  *     Helper::isChatModeAvailable() === count(CustomerChannel::getChannels())
  *     CustomerChannel::getChannels() === Eventy::filter('channels.list', [])
  *
- * So a module that answers `channels.list` switches the whole of it on. That
- * is the entire mechanism, and this phase deliberately does nothing else: no
- * route, no widget, no table of our own, nothing a customer can reach.
+ * So a module that answers `channels.list` switches the whole of it on. On top
+ * of that this module carries the visitor's bubble and its endpoints, the
+ * agent-side indicators, presence, blocking, and translations.
  *
  * See `docs/live-chat-core-contract.md` for what this depends on and what
  * breaks if an upgrade moves it.
@@ -34,6 +36,7 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
     {
         $this->registerConfig();
         $this->registerViews();
+        $this->registerTranslations();
         $this->loadMigrationsFrom(__DIR__.'/../Database/Migrations');
         $this->hooks();
         $this->registerCommands();
@@ -45,10 +48,8 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
     }
 
     /**
-     * Everything this module adds to FreeScout.
-     *
-     * Two filters and one action, all documented extension points. No core
-     * file is touched and nothing is injected from JavaScript.
+     * Everything this module adds to FreeScout, all through documented
+     * extension points. No core file is touched.
      */
     public function hooks()
     {
@@ -72,10 +73,8 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
         // Where an agent's reply to a chat conversation comes out.
         //
         // Core refuses to email a chat conversation and hands the reply here
-        // instead (`Listeners/SendReplyToCustomer.php`). In this phase we only
-        // record that it arrived and with what — building the transport to the
-        // customer's browser is the next phase, and doing it now would mean
-        // shipping a customer-facing surface nobody has reviewed.
+        // instead (`Listeners/SendReplyToCustomer.php`). The bubble reads
+        // replies from the database, so this only records that one arrived.
         //
         // Note the arrival is not immediate: core schedules this through the
         // queue with `Conversation::UNDO_TIMOUT` (15 s) of delay, so the log
@@ -103,9 +102,8 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
         }, 20, 3);
 
         // When an agent starts remote support from a chat, put the link in the
-        // chat. Without this the agent has a link in a sidebar and a customer
-        // who cannot see sidebars — the two halves of the flow sit a copy-paste
-        // apart, which is exactly where a support call goes wrong.
+        // chat, in the language the visitor's bubble speaks. Without this the
+        // agent has a link in a sidebar and a customer who cannot see sidebars.
         //
         // Chat conversations only. On an email conversation this would post a
         // reply, which means sending mail, and that is a decision belonging to
@@ -125,10 +123,12 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
                 return;
             }
 
+            $lang = \Modules\GesoftLiveChat\Entities\ChatSession::langFor($conversation);
+
             // Plain text, the same shape the visitor's own messages take, so
             // the bubble renders it with the code path already in use rather
             // than a second one that has to be kept safe separately.
-            $body = __('To let us connect to your computer, open this link and run the tool it gives you:')
+            $body = __('To let us connect to your computer, open this link and run the tool it gives you:', [], $lang)
                 .' '.$url;
 
             \App\Thread::createExtended(
@@ -156,7 +156,8 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
                 return;
             }
 
-            $body = __('Thank you — we can see your computer now. Please leave the support window open.');
+            $lang = \Modules\GesoftLiveChat\Entities\ChatSession::langFor($conversation);
+            $body = __('Thank you — we can see your computer now. Please leave the support window open.', [], $lang);
 
             \App\Thread::createExtended(
                 [
@@ -175,18 +176,29 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
             ]);
         }, 20, 2);
 
-        // "Are you still there?" in the conversation's More Actions menu, on
-        // chat conversations only — the hook fires on every conversation, and
-        // the question is meaningless on an email one.
+        // "Are you still there?" and "Block visitor…" in the conversation's
+        // More Actions menu, on chat conversations only — the hook fires on
+        // every conversation, and neither means anything on an email one.
         \Eventy::addAction('conversation.append_action_buttons', function ($conversation, $mailbox) {
             if (!$conversation || !$conversation->isChat()) {
                 return;
             }
 
-            echo \View::make('gesoftlivechat::partials/nudge_button', [
+            echo \View::make('gesoftlivechat::partials/chat_actions', [
                 'conversation' => $conversation,
             ])->render();
         }, 30, 2);
+
+        // Manage → Blocked chat visitors, for administrators, next to core's
+        // own management pages.
+        \Eventy::addAction('menu.manage.append', function () {
+            $user = auth()->user();
+            if (!$user || !$user->isAdmin()) {
+                return;
+            }
+
+            echo '<li><a href="'.e(route('gesoftlivechat.agent.blocks')).'">'.e(__('Blocked chat visitors')).'</a></li>';
+        });
 
         // The agent-side indicator. Core never puts a count on its own Chats
         // link and only subscribes to the chat realtime channel when the chat
@@ -232,18 +244,19 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
         });
 
         // What the lines this module writes into a chat say: the visitor ended
-        // it, left, or came back. Core words its own line items and leaves any
-        // other action type blank.
+        // it, left, came back, or was blocked. Core words its own line items
+        // and leaves any other action type blank.
         \Eventy::addFilter('thread.action_text', function ($did_this, $thread) {
             $text = self::lineText($thread);
 
             return $text !== null ? $text : $did_this;
         }, 20, 2);
 
-        // Whose name those lines carry: the customer's. Core only names a
-        // person for line items an agent made and would print "System".
+        // Whose name the visitor's own lines carry: the customer's. Core only
+        // names a person for line items an agent made and would print
+        // "System". A block is an agent's act and keeps the agent's name.
         \Eventy::addFilter('thread.action_person', function ($person, $thread) {
-            if (self::lineText($thread) === null) {
+            if (!self::isVisitorLine($thread)) {
                 return $person;
             }
 
@@ -263,15 +276,24 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
         }
 
         switch ((int) ($thread->action_type ?? 0)) {
-            case \Modules\GesoftLiveChat\Support\Presence::ACTION_ENDED:
+            case Presence::ACTION_ENDED:
                 return __(':person ended the chat');
-            case \Modules\GesoftLiveChat\Support\Presence::ACTION_LEFT:
+            case Presence::ACTION_LEFT:
                 return __(':person left the chat');
-            case \Modules\GesoftLiveChat\Support\Presence::ACTION_RETURNED:
+            case Presence::ACTION_RETURNED:
                 return __(':person came back to the chat');
+            case Presence::ACTION_BLOCKED:
+                return __(':person blocked this visitor');
         }
 
         return null;
+    }
+
+    /** A line that records something the visitor did, rather than an agent. */
+    public static function isVisitorLine($thread)
+    {
+        return self::lineText($thread) !== null
+            && in_array((int) $thread->action_type, [Presence::ACTION_ENDED, Presence::ACTION_LEFT, Presence::ACTION_RETURNED], true);
     }
 
     /**
@@ -336,6 +358,17 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
         $this->loadViewsFrom(array_merge(array_map(function ($path) {
             return $path.'/modules/gesoftlivechat';
         }, \Config::get('view.paths')), [$source]), 'gesoftlivechat');
+    }
+
+    /**
+     * The agent-facing words, in FreeScout's own translation format: a JSON
+     * file per language, used whenever the agent's interface is in that
+     * language. What the visitor reads is translated in the bubble itself and,
+     * for messages written into a chat, in the visitor's language.
+     */
+    public function registerTranslations()
+    {
+        $this->loadJsonTranslationsFrom(__DIR__.'/../Resources/lang');
     }
 
     protected function registerConfig()

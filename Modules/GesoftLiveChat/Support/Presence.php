@@ -21,6 +21,40 @@ final class Presence
     const ACTION_ENDED    = 100;
     const ACTION_LEFT     = 101;
     const ACTION_RETURNED = 102;
+    const ACTION_BLOCKED  = 103;
+
+    /** Languages the bubble and its automatic messages are written in. */
+    const LANGS = ['ro', 'en'];
+
+    /**
+     * The visitor's language from what the bubble asked for, or the default.
+     *
+     * Only the two the bubble has words for; anything else would produce
+     * automatic messages in a language nobody wrote.
+     */
+    public static function lang($requested, $default)
+    {
+        $lang = strtolower(substr(trim((string) $requested), 0, 2));
+
+        return in_array($lang, self::LANGS, true) ? $lang : $default;
+    }
+
+    /**
+     * Whether the bubble should tell a waiting visitor that somebody will be
+     * with them shortly.
+     *
+     * Live Helper Chat's auto-responder does the same after a configurable
+     * wait. Here it is computed on every poll rather than written into the
+     * conversation: a line the agent did not write has no business in the
+     * transcript, and nothing has to be undone once the agent answers.
+     */
+    public static function shouldTellToWait($first_customer_at, $agent_replied, $now, $wait_after)
+    {
+        return $wait_after > 0
+            && !$agent_replied
+            && $first_customer_at !== null
+            && ($now - $first_customer_at) >= $wait_after;
+    }
 
     /** 256 bits, hex. The raw value only ever exists in the visitor's tab. */
     public static function newToken()

@@ -4,23 +4,29 @@ namespace Modules\GesoftLiveChat\Http\Controllers;
 
 use App\Conversation;
 use App\Mailbox;
-use Illuminate\Http\Request;
+use App\Thread;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Modules\GesoftLiveChat\Entities\AgentPresence;
+use Modules\GesoftLiveChat\Entities\ChatBlock;
+use Modules\GesoftLiveChat\Entities\ChatSession;
+use Modules\GesoftLiveChat\Support\Blocking;
+use Modules\GesoftLiveChat\Support\Presence;
 
 /**
- * What the agent's interface needs to know about chats, from anywhere in it.
+ * What the agent's interface needs from live chat, from anywhere in it.
  *
- * FreeScout answers this nowhere. Its Chats link carries no count, and the
+ * FreeScout answers none of this. Its Chats link carries no count, and the
  * realtime channel that would announce a new chat is only subscribed to when
  * the sidebar is *already* showing the chat list (`public/js/main.js`, guarded
  * on `#folders.chats`). So an agent reading a ticket has no way to learn that
  * somebody is waiting in a chat — which is the one thing about chat that is
  * different from email.
  *
- * One endpoint, behind the session and the agent's own mailbox permissions.
- * It returns a count and the newest chat's id, which is all a badge and a
- * notification need.
+ * Everything here is behind the session and the agent's own mailbox
+ * permissions: the chat count and presence, "are you still there?", blocking a
+ * visitor, and the list of blocks for administrators.
  */
 class AgentController extends Controller
 {
@@ -39,7 +45,7 @@ class AgentController extends Controller
      * have to wait out a timer to say so.
      *
      * It is a real message to a real person, so it goes through the same path
-     * any agent reply does and appears in the transcript as what it is.
+     * any agent reply does, in the language the visitor's bubble speaks.
      */
     public function nudge(Request $request, $conversation_id)
     {
@@ -50,7 +56,8 @@ class AgentController extends Controller
             return response()->json(['status' => 'error', 'msg' => __('Not a chat conversation.')], 400);
         }
 
-        $text = (string) config('gesoftlivechat.idle_prompt');
+        $configured = (string) config('gesoftlivechat.idle_prompt');
+        $text = $configured !== '' ? $configured : __('Are you still there?', [], ChatSession::langFor($conversation));
 
         \App\Thread::createExtended(
             [
@@ -72,16 +79,118 @@ class AgentController extends Controller
     }
 
     /**
+     * Block the visitor of a chat: their address, their email, or both.
+     *
+     * Live Helper Chat's ban, set from the conversation. The chat ends for the
+     * visitor at once — their token stops working — and a line in the
+     * conversation records who blocked them. The visitor cannot start another
+     * chat, or leave a message, while the block lasts.
+     */
+    public function block(Request $request, $conversation_id)
+    {
+        $conversation = Conversation::findOrFail($conversation_id);
+        $this->authorize('viewCached', $conversation);
+
+        if (!$conversation->isChat()) {
+            return response()->json(['status' => 'error', 'msg' => __('Not a chat conversation.')], 400);
+        }
+
+        $expires = Blocking::expiresAt($request->input('days', 1), time());
+        $want_ip = filter_var($request->input('block_ip'), FILTER_VALIDATE_BOOLEAN);
+        $want_email = filter_var($request->input('block_email'), FILTER_VALIDATE_BOOLEAN);
+
+        if ($expires === false || (!$want_ip && !$want_email)) {
+            return response()->json(['status' => 'error', 'msg' => __('Choose what to block.')], 422);
+        }
+
+        $session = ChatSession::where('conversation_id', $conversation->id)->orderBy('id', 'desc')->first();
+        $ip = $want_ip && $session ? Blocking::normalizeIp($session->ip) : null;
+        $email = $want_email ? Blocking::normalizeEmail($conversation->customer_email) : null;
+
+        if (!$ip && !$email) {
+            return response()->json(['status' => 'error', 'msg' => __('Nothing to block: this visitor left no address or email.')], 422);
+        }
+
+        $reason = mb_substr(trim(strip_tags((string) $request->input('reason', ''))), 0, 191);
+
+        foreach ([Blocking::KIND_IP => $ip, Blocking::KIND_EMAIL => $email] as $kind => $value) {
+            if (!$value) {
+                continue;
+            }
+            ChatBlock::create([
+                'kind'               => $kind,
+                'value'              => $value,
+                'conversation_id'    => $conversation->id,
+                'created_by_user_id' => auth()->id(),
+                'reason'             => $reason !== '' ? $reason : null,
+                'expires_at'         => $expires ? \Carbon\Carbon::createFromTimestamp($expires) : null,
+            ]);
+        }
+
+        ChatSession::where('conversation_id', $conversation->id)
+            ->whereNull('ended_at')
+            ->update(['ended_at' => now()]);
+
+        Thread::create($conversation, Thread::TYPE_LINEITEM, '', [
+            'user_id'            => $conversation->user_id,
+            'created_by_user_id' => auth()->id(),
+            'action_type'        => Presence::ACTION_BLOCKED,
+            'source_via'         => Thread::PERSON_USER,
+            'source_type'        => Thread::SOURCE_TYPE_WEB,
+            'customer_id'        => $conversation->customer_id,
+        ]);
+
+        \Log::info('GesoftLiveChat: visitor blocked', [
+            'conversation_id' => $conversation->id,
+            'ip'              => (bool) $ip,
+            'email'           => (bool) $email,
+            'days'            => (int) $request->input('days', 1),
+        ]);
+
+        return response()->json(['status' => 'success']);
+    }
+
+    /**
+     * Blocks still in force, for administrators: Manage → Blocked chat
+     * visitors.
+     */
+    public function blocks(Request $request)
+    {
+        if (!auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $blocks = ChatBlock::active()->with(['creator'])->orderBy('id', 'desc')->get();
+
+        return view('gesoftlivechat::blocks', ['blocks' => $blocks]);
+    }
+
+    public function unblock(Request $request, $id)
+    {
+        if (!auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        ChatBlock::findOrFail($id)->delete();
+
+        return redirect()->route('gesoftlivechat.agent.blocks');
+    }
+
+    /**
      * Active chats the signed-in agent is allowed to see.
      *
      * Scoped by mailbox permission, and by assignment where the user may only
      * see their own — the same two rules `Conversation::getChats()` applies,
      * because a count that includes conversations the agent cannot open is a
      * badge that never clears.
+     *
+     * Also the agents' heartbeat: this is asked every ten seconds from every
+     * page an agent has open, which is what tells the bubble somebody is there.
      */
     public function chats(Request $request)
     {
         $user = auth()->user();
+        AgentPresence::seen($user->id);
 
         $mailbox_ids = Mailbox::whereHas('users', function ($q) use ($user) {
             $q->where('users.id', $user->id);
@@ -143,7 +252,7 @@ class AgentController extends Controller
         // Whether each visible chat's visitor is still there, for the dot in
         // the chat list. Newest session per conversation wins.
         $presence = [];
-        $sessions = \Modules\GesoftLiveChat\Entities\ChatSession::whereIn('conversation_id', $conversation_ids)
+        $sessions = ChatSession::whereIn('conversation_id', $conversation_ids)
             ->orderBy('id')
             ->get();
         foreach ($sessions as $session) {

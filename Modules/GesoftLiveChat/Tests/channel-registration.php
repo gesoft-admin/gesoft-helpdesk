@@ -23,6 +23,7 @@ namespace Illuminate\Support {
         public function commands($commands) { global $REGISTERED_COMMANDS; $REGISTERED_COMMANDS = $commands; }
         public function loadViewsFrom($paths, $namespace) {}
         public function loadMigrationsFrom($path) { global $MIGRATIONS; $MIGRATIONS = $path; }
+        public function loadJsonTranslationsFrom($path) { global $TRANSLATIONS; $TRANSLATIONS = $path; }
     }
 }
 
@@ -46,9 +47,10 @@ namespace {
     $REGISTERED_COMMANDS = [];
     $LOGGED = [];
     $MIGRATIONS = null;
+    $TRANSLATIONS = null;
 
     function config($key, $default = null) { global $CONFIG; return array_key_exists($key, $CONFIG) ? $CONFIG[$key] : $default; }
-    function __($s, $r = []) { return $s; }
+    function __($s, $r = [], $locale = null) { return $s; }
     function env($k, $d = null) { return $d; }
     function config_path($p = '') { return '/tmp/config/'.$p; }
     function resource_path($p = '') { return '/tmp/resources/'.$p; }
@@ -104,8 +106,8 @@ namespace {
     }
 
     function boot($console = false) {
-        global $LOGGED, $REGISTERED_COMMANDS, $MIGRATIONS;
-        $LOGGED = []; $REGISTERED_COMMANDS = []; $MIGRATIONS = null;
+        global $LOGGED, $REGISTERED_COMMANDS, $MIGRATIONS, $TRANSLATIONS;
+        $LOGGED = []; $REGISTERED_COMMANDS = []; $MIGRATIONS = null; $TRANSLATIONS = null;
         Eventy::$stub = new EventyStub();
         Event::$listeners = [];
         (new \Modules\GesoftLiveChat\Providers\GesoftLiveChatServiceProvider(new AppStub($console)))->boot();
@@ -177,9 +179,13 @@ namespace {
     \Eventy::filter('schedule', $sched);
     check('sweep added to the schedule', $sched->added, ['gesoftlivechat:sweep-chats']);
 
-    // The sessions table has to be created on install, or every start fails.
+    // The tables have to be created on install, the words have to be found,
+    // and the agent-facing entry points have to be attached.
     boot();
     check('migrations are loaded from the module', strpos((string) $MIGRATIONS, 'Database/Migrations') !== false, true);
+    check('translations are loaded from the module', strpos((string) $TRANSLATIONS, 'Resources/lang') !== false, true);
+    check('chat actions are added to More Actions', isset(Eventy::$stub->actions['conversation.append_action_buttons']), true);
+    check('the blocked visitors page is added to Manage', isset(Eventy::$stub->actions['menu.manage.append']), true);
 
     // A customer's chat message is announced by the in-page alert, so the bell
     // must not file it as well — and nothing else may be cancelled with it.
@@ -205,9 +211,10 @@ namespace {
         $sending(new \App\Notifications\WebsiteNotification($chat, $from_agent)), null);
     check('other notifications are not touched', $sending(new \stdClass()), null);
 
-    // The lines written into a chat when a visitor ends it, leaves, or comes
-    // back: what they say, and whose name they carry. Core only names a person
-    // for line items an agent made and would otherwise print "System".
+    // The lines written into a chat when a visitor ends it, leaves, comes back,
+    // or is blocked: what they say, and whose name they carry. Core only names
+    // a person for line items an agent made and would otherwise print "System";
+    // a block is an agent's act and keeps the agent's name.
     boot();
     $line = function ($action) {
         return (object) ['type' => \App\Thread::TYPE_LINEITEM, 'action_type' => $action, 'customer_cached' => new CustomerStub('Ana Pop')];
@@ -215,10 +222,12 @@ namespace {
     check('ended line', \Eventy::filter('thread.action_text', '', $line(100)), ':person ended the chat');
     check('left line', \Eventy::filter('thread.action_text', '', $line(101)), ':person left the chat');
     check('came back line', \Eventy::filter('thread.action_text', '', $line(102)), ':person came back to the chat');
+    check('blocked line', \Eventy::filter('thread.action_text', '', $line(103)), ':person blocked this visitor');
     check("core's own line items keep their text", \Eventy::filter('thread.action_text', 'core text', $line(1)), 'core text');
     check('a message with a stray action type is not reworded',
         \Eventy::filter('thread.action_text', 'x', (object) ['type' => 1, 'action_type' => 100]), 'x');
-    check('the line is signed with the customer', \Eventy::filter('thread.action_person', '', $line(101)), 'Ana Pop');
+    check("the visitor's line is signed with the customer", \Eventy::filter('thread.action_person', '', $line(101)), 'Ana Pop');
+    check("a block keeps the agent's name", \Eventy::filter('thread.action_person', 'Dan', $line(103)), 'Dan');
     check("core's line items keep core's person", \Eventy::filter('thread.action_person', 'Dan', $line(1)), 'Dan');
 
     printf("\n%d passed, %d failed\n", $pass, $fail);

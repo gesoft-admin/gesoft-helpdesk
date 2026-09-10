@@ -115,9 +115,47 @@ return [
 
     /**
      * What the "still there?" button sends. It is a real message to the
-     * customer, so it is worded as one.
+     * customer, so it is worded as one. Empty uses the translated default,
+     * "Are you still there?", in the visitor's language; a value here is sent
+     * as written, whatever the language.
      */
-    'idle_prompt' => env('GESOFT_LIVE_CHAT_IDLE_PROMPT', 'Are you still there?'),
+    'idle_prompt' => env('GESOFT_LIVE_CHAT_IDLE_PROMPT', ''),
+
+    /**
+     * Whether the bubble offers a chat or a message form.
+     *
+     *   auto     a chat while an agent with access to the chat mailbox has had
+     *            FreeScout open within `operator_timeout`, the form otherwise
+     *   online   always a chat
+     *   offline  always the form
+     *
+     * Live Helper Chat shows the same "leave a message" form when no operator
+     * is online, and the message becomes an ordinary conversation answered by
+     * email.
+     */
+    'availability' => env('GESOFT_LIVE_CHAT_AVAILABILITY', 'auto'),
+
+    /**
+     * How long after an agent's last sign of life they still count as around,
+     * in seconds. The operator script checks in every ten seconds from any
+     * FreeScout page; a background tab slows to about once a minute, so two
+     * minutes does not drop an agent who switched tabs.
+     */
+    'operator_timeout' => env('GESOFT_LIVE_CHAT_OPERATOR_TIMEOUT', 120),
+
+    /**
+     * After how many seconds without an answer the bubble tells the visitor
+     * somebody will be with them shortly. Zero never does. Shown in the bubble
+     * only, never written into the conversation.
+     */
+    'wait_after' => env('GESOFT_LIVE_CHAT_WAIT_AFTER', 60),
+
+    /**
+     * The language of automatic messages when the bubble did not say which:
+     * the remote support link, "we can see your computer now", "are you still
+     * there?". The bubble sends its own language with the first message.
+     */
+    'visitor_lang' => env('GESOFT_LIVE_CHAT_VISITOR_LANG', 'ro'),
 
     /**
      * Whether a visitor must give an email address before the first message.

@@ -49,7 +49,10 @@
     </section>
 </main>
 
+{{-- ?lang=en or ?lang=ro picks the bubble's language; without it the bubble
+     follows this page, which is Romanian. --}}
 <script src="{{ asset('modules/gesoftlivechat/js/widget.js') }}"
-        data-title="Asistență Gesoft"></script>
+        data-title="Asistență Gesoft"
+        data-lang="{{ in_array(request('lang'), ['ro', 'en'], true) ? request('lang') : '' }}"></script>
 </body>
 </html>

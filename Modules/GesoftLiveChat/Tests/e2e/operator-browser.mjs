@@ -7,7 +7,7 @@
 //   node Modules/GesoftLiveChat/Tests/e2e/operator-browser.mjs
 //
 // Test instance only: it signs in as an agent, opens real chats through the
-// visitor endpoints and closes them afterwards.
+// visitor endpoints, blocks and unblocks a visitor, and closes what it opened.
 //
 // These are the checks that a passing endpoint cannot stand in for. The chat
 // count once answered curl perfectly while the interface showed nothing,
@@ -17,7 +17,7 @@ import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 const BASE = process.env.GLC_BASE.replace(/\/$/, '');
-const CDP = process.env.GLC_CDP || 'http://127.0.0.1:9222';
+const CDP = process.env.GLC_CDP || 'http://localhost:9222';
 const SQL = process.env.GLC_SQL;
 const RUN = Math.random().toString(16).slice(2, 8);
 const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36';
@@ -36,11 +36,11 @@ function check(label, got, want) {
 
 // ------------------------------------------------------------ visitor side
 
-async function visitor(name, message) {
+async function visitor(name, message, email) {
   const r = await fetch(`${BASE}/gesoft-live-chat/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, email: `e2e-op-${RUN}-${opened.length}@gesoft.test`, message }),
+    body: JSON.stringify({ name, email: email || `e2e-op-${RUN}-${opened.length}@gesoft.test`, message, lang: 'ro' }),
   });
   const b = await r.json();
   if (!b.token) throw new Error('start failed: ' + JSON.stringify(b));
@@ -52,7 +52,7 @@ async function visitor(name, message) {
 const say = (v, message) => fetch(`${BASE}/gesoft-live-chat/send`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: v.token, message }),
 });
-const pollOnce = (v) => fetch(`${BASE}/gesoft-live-chat/poll?token=${v.token}&since=0`);
+const pollOnce = async (v) => (await fetch(`${BASE}/gesoft-live-chat/poll?token=${v.token}&since=0`)).json();
 const endChat = (v) => fetch(`${BASE}/gesoft-live-chat/end`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: v.token }),
 });
@@ -118,8 +118,11 @@ console.log('GesoftLiveChat — the agent side in a browser\n');
 
 // ------------------------------------------------------------------ sign in
 await open('/login');
+// A browser profile that is still signed in is sent straight past the form.
 await ev(`(() => {
-  document.querySelector('input[name=email]').value = ${JSON.stringify(process.env.GLC_AGENT_EMAIL)};
+  const email = document.querySelector('input[name=email]');
+  if (!email) { return false; }
+  email.value = ${JSON.stringify(process.env.GLC_AGENT_EMAIL)};
   document.querySelector('input[name=password]').value = ${JSON.stringify(process.env.GLC_AGENT_PASSWORD)};
   document.querySelector('input[name=password]').form.submit();
   return true;
@@ -127,6 +130,8 @@ await ev(`(() => {
 await sleep(1500);
 await waitFor(`!location.pathname.startsWith('/login')`, 20000);
 check('signed in as the agent', await ev(`!location.pathname.startsWith('/login')`), true);
+check('Manage has a link to the blocked visitors page',
+  await ev(`[...document.querySelectorAll('a')].some(a => a.href.endsWith('/gesoft-live-chat/blocks'))`), true);
 
 // --------------------------------------------------- presence in the chat list
 const here = await visitor(`E2E prezent ${RUN}`, `Sunt aici ${RUN}`);
@@ -139,13 +144,15 @@ check('a visitor who is here gets the "here" mark in the chat list',
   await waitFor(`!!document.querySelector('.chats li.chat-item[data-chat_id="${here.conv}"].gesoft-presence-here')`), true);
 check('a visitor who ended the chat gets the "ended" mark',
   await waitFor(`!!document.querySelector('.chats li.chat-item[data-chat_id="${ended.conv}"].gesoft-presence-ended')`), true);
-check('  and the mark is explained in words on hover',
-  await ev(`(document.querySelector('.chats li.chat-item[data-chat_id="${ended.conv}"] .folder-name') || {}).title || ''`),
-  'Clientul a încheiat chatul');
+const hoverTitle = await ev(`(document.querySelector('.chats li.chat-item[data-chat_id="${ended.conv}"] .folder-name') || {}).title || ''`);
+check('  and the mark is explained in words on hover, in the agent\'s language',
+  ['The customer ended the chat', 'Clientul a încheiat chatul'].includes(hoverTitle), true);
 
 const lineText = await ev(`[...document.querySelectorAll('.thread-type-lineitem .thread-title')].map(e => e.innerText.trim()).join(' | ')`);
-check('the conversation shows the "ended the chat" line', /ended the chat/.test(lineText), true);
-check('  signed with the customer, not "System"', lineText.includes(`E2E plecat ${RUN}`) && !/System ended/.test(lineText), true);
+check('the conversation shows the "ended the chat" line', /ended the chat|a încheiat chatul/.test(lineText), true);
+check('  signed with the customer, not "System"', lineText.includes(`E2E plecat ${RUN}`) && !/System/.test(lineText), true);
+check('More Actions offers "ask if still there" and "block visitor"',
+  await ev(`!!document.querySelector('.gesoft-chat-nudge') && !!document.querySelector('.gesoft-chat-block-open')`), true);
 
 // -------------------------------------------- the alert opens the chat it names
 const bellBefore = one(`select count(*) from notifications`);
@@ -172,6 +179,46 @@ check('no alert for a message in the chat the agent is reading', alertedAgain, f
 // ------------------------------------------------------------------- the bell
 await sleep(20000);  // notifications go through the queue
 check('customer chat messages added nothing under the bell', one(`select count(*) from notifications`), bellBefore);
+
+// ------------------------------------------------------------ blocking a visitor
+const blockedEmail = `e2e-op-blocat-${RUN}@gesoft.test`;
+const blocked = await visitor(`E2E de blocat ${RUN}`, `Deranjez ${RUN}`, blockedEmail);
+try {
+  await open(`/conversation/${blocked.conv}?chat_mode=1`);
+  await ev(`document.querySelector('.gesoft-chat-block-open').click(); true`);
+  check('"Block visitor…" opens the dialog', await waitFor(`!!document.querySelector('#gesoft-chat-block-modal.in')`, 5000), true);
+  check('  offering four durations', await ev(`document.querySelectorAll('#gesoft-chat-block-modal select[name=days] option').length`), 4);
+  // The address is this test machine's own; block the email only.
+  await ev(`(() => {
+    const m = document.querySelector('#gesoft-chat-block-modal');
+    m.querySelector('input[name=block_ip]').checked = false;
+    m.querySelector('input[name=reason]').value = 'e2e ${RUN}';
+    m.querySelector('.gesoft-block-submit').click();
+    return true;
+  })()`);
+  await sleep(2500);
+  await waitFor(`document.readyState === 'complete' && !document.querySelector('#gesoft-chat-block-modal.in')`, 15000);
+  const blockLine = await ev(`[...document.querySelectorAll('.thread-type-lineitem .thread-title')].map(e => e.innerText.trim()).join(' | ')`);
+  check('the conversation shows who blocked the visitor', /blocked this visitor|a blocat acest vizitator/.test(blockLine), true);
+  check('  signed by the agent, not the customer', !blockLine.includes(`E2E de blocat ${RUN} blocked`) && !blockLine.includes(`E2E de blocat ${RUN} a blocat`), true);
+  check("the visitor's chat ended at once", (await pollOnce(blocked)).closed, true);
+
+  await open('/gesoft-live-chat/blocks');
+  check('the blocked visitors page lists the email', await ev(`document.body.innerText.includes(${JSON.stringify(blockedEmail)})`), true);
+  check('  with the reason', await ev(`document.body.innerText.includes('e2e ${RUN}')`), true);
+  const rowsBefore = await ev(`document.querySelectorAll('table.gesoft-blocks tbody tr').length`);
+  await ev(`(() => {
+    const row = [...document.querySelectorAll('table.gesoft-blocks tbody tr')].find(r => r.innerText.includes(${JSON.stringify(blockedEmail)}));
+    row.querySelector('button[type=submit]').click();
+    return true;
+  })()`);
+  await sleep(1500);
+  await waitFor(`document.readyState === 'complete'`, 15000);
+  check('Unblock removes it from the page', await ev(`!document.body.innerText.includes(${JSON.stringify(blockedEmail)})`), true);
+  check('  and from the list', await ev(`document.querySelectorAll('table.gesoft-blocks tbody tr').length`), Math.max(rowsBefore - 1, 0));
+} finally {
+  sql(`delete from gesoft_live_chat_blocks where value = '${blockedEmail}' or reason = 'e2e ${RUN}'`);
+}
 
 check('no script errors from the module', moduleErrors, []);
 

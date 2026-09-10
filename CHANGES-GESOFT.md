@@ -36,19 +36,35 @@ email. All of that is already in core and inert behind one filter,
 `channels.list`.
 
 On top of that it carries the visitor's half, which core does not have: a chat
-bubble (`Public/js/widget.js`), five public endpoints behind the `open`
-middleware group (start, send, poll, end, leave) and one table of its own,
-`gesoft_live_chat_sessions`, with a row per visitor tab. The only credential a
-visitor ever holds is a random token for one conversation. Only its hash is
-stored, it lives in the tab rather than the browser, and nothing the visitor
-types — a name, an email address — leads to a conversation. Starting a
-conversation has its own rate limit per address.
+bubble (`Public/js/widget.js`), seven public endpoints behind the `open`
+middleware group (status, start, offline, send, poll, end, leave) and three
+tables of its own: visitor sessions, blocks, and agent presence. The only
+credential a visitor ever holds is a random token for one conversation. Only
+its hash is stored, it lives in the tab rather than the browser, and nothing
+the visitor types — a name, an email address — leads to a conversation.
+Starting a conversation has its own rate limit per address, and the forms carry
+a field only software fills in.
+
+Modelled on Live Helper Chat: the bubble asks whether an agent is around and
+offers a chat or a message form, and a message left while nobody is available
+becomes an ordinary email conversation. A visitor who has waited a minute
+without an answer is told somebody will be with them, or that nobody is
+available. Agents can block a visitor's address or email from the
+conversation, for a day, a week, a month or for good, and administrators lift
+blocks from Manage → Blocked chat visitors.
 
 For agents it adds a waiting-chat count, an in-page alert that opens the chat
 it announces, a mark in the chat list saying whether the visitor is still
-there, lines in the conversation when a visitor ends the chat, leaves or comes
-back, and an idle sweep counted from the agent's last reply. Customer chat
-messages are kept out of the notification bell, which the alert replaces.
+there, lines in the conversation when a visitor ends the chat, leaves, comes
+back or is blocked, and an idle sweep counted from the agent's last reply.
+Customer chat messages are kept out of the notification bell, which the alert
+replaces.
+
+The agent-facing words are translated into Romanian through FreeScout's own
+JSON translations, as are those of `GesoftRemoteSupport`. The bubble speaks
+Romanian and English, and messages written into a chat automatically — the
+remote support link, "are you still there?" — go out in the visitor's
+language.
 
 A development-only artisan command and demo page, both off unless
 `GESOFT_LIVE_CHAT_DEV_TOOLS=true`, exist to exercise it on a test instance.

@@ -45,6 +45,12 @@ Baseline: FreeScout `1.8.239`.
 | Line items rendered through `getActionText()` | `resources/views/conversations/partials/thread.blade.php` | The lines are stored and the conversation shows nothing. |
 | `data-chat_id` and `.folder-name` on chat list items | `resources/views/mailboxes/partials/chat_list.blade.php` | The presence mark disappears from the chat list. |
 | `RateLimiter` decay in minutes (Laravel 5.5) | `vendor/laravel/framework/src/Illuminate/Cache/RateLimiter.php` | Laravel 5.8 switched to seconds: the start limit would shrink from ten minutes to ten seconds without an error. |
+| `menu.manage.append` action | `resources/views/layouts/app.blade.php` | Manage → Blocked chat visitors disappears; blocks can no longer be lifted early. |
+| `conversation.append_action_buttons` action | `resources/views/conversations/view.blade.php` | "Ask if the customer is still there" and "Block visitor…" disappear from More Actions. |
+| `Mailbox::userIdsHavingAccess()` | `app/Mailbox.php` | The bubble cannot tell whether anybody is available. |
+| `ServiceProvider::loadJsonTranslationsFrom()` | `vendor/laravel/framework/src/Illuminate/Support/ServiceProvider.php` | The module fails to boot. |
+| `Thread::created_by_user_cached()` | `app/Thread.php` | The bubble stops showing the agent's first name. |
+| `Conversation::TYPE_EMAIL`, `SOURCE_TYPE_WEB` | `app/Conversation.php` | A message left while nobody is available cannot become an email conversation. |
 
 ## Two behaviours that are contracts even though nothing enforces them
 

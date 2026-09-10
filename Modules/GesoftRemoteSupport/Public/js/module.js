@@ -22,6 +22,24 @@
     var timer = null;
     var failures = 0;
 
+    // Messages this file writes itself, in the agent's interface language as
+    // core rendered it. Everything else in the panel is translated server-side.
+    var WORDS = {
+        en: {
+            unavailable: 'Remote Support unavailable.',
+            expired: 'Your session expired — reload the page and try again.',
+            failed: 'Request failed (HTTP {status}).',
+            copied: 'copied'
+        },
+        ro: {
+            unavailable: 'Asistența la distanță nu este disponibilă.',
+            expired: 'Sesiunea a expirat — reîncărcați pagina și încercați din nou.',
+            failed: 'Cererea a eșuat (HTTP {status}).',
+            copied: 'copiat'
+        }
+    };
+    var T = WORDS[String(document.documentElement.lang || 'en').slice(0, 2).toLowerCase()] || WORDS.en;
+
     function csrfToken() {
         return $('meta[name="csrf-token"]').attr('content');
     }
@@ -108,15 +126,15 @@
                 // The server has already reduced whatever went wrong to a
                 // sentence an agent can act on. Nothing else is shown.
                 msg.addClass('text-danger')
-                    .text((response && response.msg) || 'Remote Support unavailable.');
+                    .text((response && response.msg) || T.unavailable);
             }
         }).fail(function (xhr) {
             // 419 is an expired CSRF token, which a reload fixes; anything
             // else here is FreeScout itself, not the remote backend.
             msg.addClass('text-danger').text(
                 xhr.status === 419
-                    ? 'Your session expired — reload the page and try again.'
-                    : 'Request failed (HTTP ' + xhr.status + ').'
+                    ? T.expired
+                    : T.failed.replace('{status}', xhr.status)
             );
             refreshButtons();
         });
@@ -151,10 +169,10 @@
                 failures = 0;
                 p.find('.gesoft-rs-msg').removeClass('text-danger').text('');
             } else {
-                noteFailure((response && response.msg) || 'Remote Support unavailable.');
+                noteFailure((response && response.msg) || T.unavailable);
             }
         }).fail(function () {
-            noteFailure('Remote Support unavailable.');
+            noteFailure(T.unavailable);
         });
     }
 
@@ -202,7 +220,7 @@
 
         navigator.clipboard.writeText(link).then(function () {
             var original = button.text();
-            button.text('copied');
+            button.text(T.copied);
             setTimeout(function () {
                 button.text(original);
             }, 1200);

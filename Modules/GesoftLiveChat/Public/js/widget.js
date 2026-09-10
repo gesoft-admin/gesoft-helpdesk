@@ -504,6 +504,18 @@
         confirm.hidden = true;
     }
 
+    // A new conversation starts on an empty window. The last one's messages
+    // stay on screen after it ends, so the visitor can read what was said —
+    // but left there, the next conversation's first message landed under
+    // them and read as the old chat carrying on, when the server had opened a
+    // new one.
+    function fresh() {
+        while (log.firstChild) { log.removeChild(log.firstChild); }
+        seen = {};
+        unread = 0;
+        badge.hidden = true;
+    }
+
     // --------------------------------------------------------------- network
 
     function post(path, data) {
@@ -647,6 +659,7 @@
             // page; the message does not, or it would be sent twice.
             message.value = '';
 
+            fresh();
             show('chat');
             add('visitor', text, null, null);
             startPolling();
@@ -712,6 +725,7 @@
         input.value = '';
         grow();
         sendBtn.disabled = true;
+        if (!token) { fresh(); }
         add('visitor', text, null, null);
 
         var path = token ? 'send' : 'start';

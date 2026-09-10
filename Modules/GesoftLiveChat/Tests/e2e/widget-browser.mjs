@@ -20,6 +20,9 @@ import { createHash } from 'node:crypto';
 const BASE = process.env.GLC_BASE.replace(/\/$/, '');
 const CDP = process.env.GLC_CDP || 'http://localhost:9222';
 const SQL = process.env.GLC_SQL;
+// Optional. The start limit is three per ten minutes per address, and this
+// suite starts more than three; without it the last start is refused.
+const ARTISAN = process.env.GLC_ARTISAN;
 const DEMO = BASE + '/gesoft-live-chat/demo';
 const KEY = 'gesoft-live-chat-token';
 const RUN = Math.random().toString(16).slice(2, 8);
@@ -202,6 +205,25 @@ check('the ended token opens nothing', after.closed, true);
 await a.ev(`(() => { const t = ${R}.querySelector('.form textarea'); t.value = 'Inca ceva ${RUN}'; ${R}.querySelector('.form').dispatchEvent(new Event('submit', { cancelable: true })); return true; })()`);
 check('writing again after ending goes back to the introduction', await mode(a), 'intro');
 check('  with what they wrote carried over', await a.ev(`${R}.querySelector('.intro [name=message]').value`), `Inca ceva ${RUN}`);
+
+// Reported on 2026-09-10: after ending, the next conversation's first message
+// appeared under the old one's, so a new chat read as the old one carrying on.
+if (ARTISAN) execSync(ARTISAN + ' cache:clear', { encoding: 'utf8' });
+// This tab was reloaded earlier, which empties the form; a visitor who never
+// reloaded finds their name and address still there.
+await fill(a, 'intro', `E2E browser ${RUN}`, `e2e-browser-${RUN}@gesoft.test`, `Inca ceva ${RUN}`);
+await waitFor(a.ev, `!!sessionStorage.getItem(${JSON.stringify(KEY)})`);
+const tokenA2 = await token(a);
+const convA2 = tokenA2 && conversationOf(tokenA2);
+if (convA2) opened.push(convA2);
+if (!tokenA2) console.log('        the introduction said: ' + JSON.stringify(await a.ev(`${R}.querySelector('.intro .error').textContent`)));
+check('  sending it opens a new conversation, not the ended one', !!convA2 && convA2 !== convA, true);
+check('  on an empty window: the ended chat is no longer shown',
+  await a.ev(`!${R}.querySelector('.log').innerText.includes('Primul mesaj ${RUN}')`), true);
+check('  only the new message is', await a.ev(`${R}.querySelectorAll('.log .row').length`), 1);
+await sleep(3500);
+check('  and polling does not bring the old messages back',
+  await a.ev(`!${R}.querySelector('.log').innerText.includes('Al doilea mesaj')`), true);
 
 // ------------------------------------------------------ nobody available: the form
 agentsAway();

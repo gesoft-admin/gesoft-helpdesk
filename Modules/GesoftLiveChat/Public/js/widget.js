@@ -145,8 +145,11 @@
     var panel    = root.querySelector('.panel');
     var log      = root.querySelector('.log');
     var form     = root.querySelector('.form');
-    var input    = root.querySelector('textarea');
-    var sendBtn  = root.querySelector('.form button');
+    // Scoped to the chat form. The introduction has a textarea of its own that
+    // comes first in the markup, and an unscoped lookup found that one: Enter
+    // in the chat box did nothing, and Send re-sent the introduction's message.
+    var input    = form.querySelector('textarea');
+    var sendBtn  = form.querySelector('button');
 
     // ------------------------------------------------------------- rendering
 
@@ -221,8 +224,13 @@
                 if (res.closed) {
                     stopPolling();
                     note('Conversația a fost închisă. Scrieți din nou pentru a începe una nouă.');
+                    // Forget only the token this tab was using. A second tab
+                    // that started a conversation has stored its own, and
+                    // removing that one would lose it on the next reload.
+                    try {
+                        if (localStorage.getItem(STORE) === token) { localStorage.removeItem(STORE); }
+                    } catch (e) {}
                     token = null;
-                    try { localStorage.removeItem(STORE); } catch (e) {}
                 }
             })
             .catch(function () { /* a dropped poll is not worth telling anyone */ });

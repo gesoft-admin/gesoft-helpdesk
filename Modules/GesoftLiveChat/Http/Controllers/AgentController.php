@@ -13,6 +13,7 @@ use Modules\GesoftLiveChat\Entities\ChatBlock;
 use Modules\GesoftLiveChat\Entities\ChatSession;
 use Modules\GesoftLiveChat\Support\Blocking;
 use Modules\GesoftLiveChat\Support\Presence;
+use Modules\GesoftLiveChat\Support\Typing;
 
 /**
  * What the agent's interface needs from live chat, from anywhere in it.
@@ -148,6 +149,36 @@ class AgentController extends Controller
         ]);
 
         return response()->json(['status' => 'success']);
+    }
+
+    /**
+     * "Is typing", from the agent's side: whether this agent is writing a
+     * reply in the conversation, and in the answer whether its visitor is.
+     *
+     * One request both ways, every three seconds, from a chat conversation's
+     * page. The page decides what counts as typing, and a note never does.
+     * Nothing of what either side types is sent.
+     */
+    public function typing(Request $request, $conversation_id)
+    {
+        $conversation = Conversation::findOrFail($conversation_id);
+        $this->authorize('viewCached', $conversation);
+
+        if (!$conversation->isChat() || !Typing::enabled()) {
+            return response()->json(['status' => 'success', 'visitor_typing' => false]);
+        }
+
+        $user = auth()->user();
+        if (filter_var($request->input('typing'), FILTER_VALIDATE_BOOLEAN)) {
+            Typing::agentTyping($conversation, $user);
+        } else {
+            Typing::agentStopped($conversation, $user);
+        }
+
+        return response()->json([
+            'status'         => 'success',
+            'visitor_typing' => Typing::isVisitorTyping($conversation),
+        ]);
     }
 
     /**

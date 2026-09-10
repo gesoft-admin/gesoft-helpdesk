@@ -176,6 +176,49 @@ await say(here, `Mesaj în chatul deschis ${RUN}`);
 const alertedAgain = await waitFor(`!!document.querySelector('.alert-floating.gesoft-chat-alert')`, 15000);
 check('no alert for a message in the chat the agent is reading', alertedAgain, false);
 
+// ------------------------------------------------------------ typing, both ways
+// Still on the chat the agent is reading.
+const box = `document.querySelector('.gesoft-chat-typing')`;
+check('the chat page carries the typing line, hidden until needed', await ev(`!!${box} && ${box}.hidden`), true);
+await fetch(`${BASE}/gesoft-live-chat/poll?token=${here.token}&since=0&typing=1`);
+check('a visitor typing shows the agent that they are', await waitFor(`!!${box} && !${box}.hidden`, 10000), true);
+check('  in words, in the agent\'s language',
+  ['The customer is typing…', 'Clientul scrie…'].includes(await ev(`(document.querySelector('.gesoft-typing-text') || {}).textContent || ''`)), true);
+await say(here, `Am terminat de scris ${RUN}`);
+check('  and it goes when their message arrives', await waitFor(`!${box} || ${box}.hidden`, 10000), true);
+
+const typeInEditor = (text, asNote) => ev(`(() => {
+  const field = document.querySelector(".form-reply input[name='is_note']");
+  if (field) { field.value = ${asNote ? "'1'" : "''"}; }
+  const editor = document.querySelector('.form-reply .note-editable');
+  if (!editor) { return false; }
+  editor.focus();
+  document.execCommand('insertText', false, ${JSON.stringify(text)});
+  return true;
+})()`);
+const clearEditor = () => ev(`(() => { $('#body').summernote('code', ''); return true; })()`);
+const agentFirst = one(`select first_name from users where email='${process.env.GLC_AGENT_EMAIL}'`);
+
+await waitFor(`!!document.querySelector('.form-reply .note-editable')`, 15000);
+check('the reply editor is there to type in', await typeInEditor(`Un răspuns în lucru ${RUN}`, false), true);
+// Polled the way a bubble would, not faster: the visitor endpoints have a
+// ceiling per address, and a test that hammers them tests the ceiling.
+let sign = null;
+for (let i = 0; i < 12 && !sign; i++) { sign = (await pollOnce(here)).typing; if (!sign) await sleep(1500); }
+check("an agent writing a reply shows the visitor dots, with the agent's first name", sign, { name: agentFirst });
+await clearEditor();
+await sleep(8000);
+check('  and they go once the agent stops', (await pollOnce(here)).typing, null);
+
+// A note is for colleagues. A customer must never watch dots while somebody
+// writes about them.
+await typeInEditor(`O notiță internă ${RUN}`, true);
+let noteSign = null;
+for (let i = 0; i < 6 && !noteSign; i++) { noteSign = (await pollOnce(here)).typing; if (!noteSign) await sleep(1500); }
+check('writing a note shows the visitor nothing', noteSign, null);
+await clearEditor();
+await ev(`(() => { const f = document.querySelector(".form-reply input[name='is_note']"); if (f) { f.value = ''; } window.onbeforeunload = null; return true; })()`);
+
 // ------------------------------------------------------------------- the bell
 await sleep(20000);  // notifications go through the queue
 check('customer chat messages added nothing under the bell', one(`select count(*) from notifications`), bellBefore);

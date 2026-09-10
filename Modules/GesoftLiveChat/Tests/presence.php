@@ -69,5 +69,15 @@ check('once the wait is up and nobody answered', Presence::shouldTellToWait($now
 check('not once an agent has answered', Presence::shouldTellToWait($now - 600, true, $now, 60), false);
 check('never when switched off', Presence::shouldTellToWait($now - 600, false, $now, 0), false);
 
+// "Is typing". Only that somebody is — nothing of what — so all there is to
+// decide is when the dots show.
+check('typing a moment ago shows', Presence::showTyping($now - 2, null, $now), true);
+check('a sign as old as the limit does not', Presence::showTyping($now - Presence::TYPING_FOR, null, $now), false);
+check('typing that already became a message does not', Presence::showTyping($now - 3, $now - 2, $now), false);
+check('  nor typing in the same second as the message', Presence::showTyping($now - 2, $now - 2, $now), false);
+check('typing again after the last message does', Presence::showTyping($now - 1, $now - 4, $now), true);
+check('no sign, no dots', Presence::showTyping(null, null, $now), false);
+check('a sign stamped in the future does not', Presence::showTyping($now + 5, null, $now), false);
+
 printf("\n%d passed, %d failed\n", $pass, $fail);
 exit($fail ? 1 : 0);

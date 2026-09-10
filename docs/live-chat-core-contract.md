@@ -51,6 +51,8 @@ Baseline: FreeScout `1.8.239`.
 | `ServiceProvider::loadJsonTranslationsFrom()` | `vendor/laravel/framework/src/Illuminate/Support/ServiceProvider.php` | The module fails to boot. |
 | `Thread::created_by_user_cached()` | `app/Thread.php` | The bubble stops showing the agent's first name. |
 | `Conversation::TYPE_EMAIL`, `SOURCE_TYPE_WEB` | `app/Conversation.php` | A message left while nobody is available cannot become an email conversation. |
+| `conversation.before_threads` action | `resources/views/conversations/view.blade.php` | "The customer is typing…" disappears from the conversation. |
+| The reply form's hidden `is_note` field, and Summernote's `.note-editable` inside `.form-reply` | `resources/views/conversations/view.blade.php`, `public/js/main.js` | The visitor stops seeing that an agent is typing. The script reports nothing when it cannot find the field, so a field that moves never turns a note into dots. |
 
 ## Two behaviours that are contracts even though nothing enforces them
 

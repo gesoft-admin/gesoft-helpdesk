@@ -12,12 +12,19 @@
  *    exactly one conversation — never a customer, and never anything found
  *    by what the visitor typed;
  *  - every route is rate limited, because these create rows in the database,
- *    and starting a conversation has a tighter budget of its own;
+ *    and starting a conversation and sending messages have tighter budgets of
+ *    their own;
  *  - nothing here can reach an operator route. The agent side is `web` + `auth`
  *    as before and shares no code path with this file.
  */
+// A ceiling per address, not a budget per visitor. Laravel counts every route
+// behind this middleware against one key, the address, so a poll, a message
+// and "End" all draw on the same number. It used to be 30 a minute: one tab
+// polling every three seconds used 20 of them, and a second tab — or a
+// colleague in the same office — had messages and "End" refused without a
+// word. What a single chat may send is limited in the controller instead.
 Route::group([
-    'middleware' => ['open', 'throttle:30,1'],
+    'middleware' => ['open', 'throttle:'.((int) config('gesoftlivechat.rate_per_minute') ?: 240).',1'],
     'prefix'     => \Helper::getSubdirectory().'/gesoft-live-chat',
     'namespace'  => 'Modules\GesoftLiveChat\Http\Controllers',
 ], function () {
@@ -71,6 +78,10 @@ Route::group([
         'uses'    => 'AgentController@nudge',
         'laroute' => true,
     ])->name('gesoftlivechat.agent.nudge');
+
+    Route::post('/gesoft-live-chat/agent/{conversation_id}/typing', [
+        'uses' => 'AgentController@typing',
+    ])->name('gesoftlivechat.agent.typing');
 
     Route::post('/gesoft-live-chat/agent/{conversation_id}/block', [
         'uses' => 'AgentController@block',

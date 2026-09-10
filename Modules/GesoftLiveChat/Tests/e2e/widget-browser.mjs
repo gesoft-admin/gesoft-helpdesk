@@ -112,6 +112,40 @@ const fill = (t, screen, name, email, message) => t.ev(`(() => {
   return true;
 })()`);
 
+// An agent's session over plain HTTP, for the checks that need the other side
+// of the chat. Skipped without GLC_AGENT_EMAIL.
+async function agentSession() {
+  if (!process.env.GLC_AGENT_EMAIL) return null;
+  const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+  const jar = new Map();
+  const req = async (path, init = {}) => {
+    const headers = { 'User-Agent': UA, Cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; '), ...(init.headers || {}) };
+    const r = await fetch(BASE + path, { ...init, headers, redirect: init.redirect || 'manual' });
+    for (const c of r.headers.getSetCookie()) {
+      const pair = c.split(';')[0];
+      const at = pair.indexOf('=');
+      jar.set(pair.slice(0, at), pair.slice(at + 1));
+    }
+    return r;
+  };
+  const formHeaders = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  const loginPage = await (await req('/login')).text();
+  const loginToken = (loginPage.match(/name="_token" value="([^"]+)"/) || [])[1];
+  await req('/login', {
+    method: 'POST', headers: formHeaders,
+    body: new URLSearchParams({ _token: loginToken, email: process.env.GLC_AGENT_EMAIL, password: process.env.GLC_AGENT_PASSWORD }).toString(),
+  });
+  const home = await (await req('/', { redirect: 'follow' })).text();
+  const csrf = (home.match(/<meta name="csrf-token" content="([^"]+)"/) || [])[1];
+  if (!csrf) throw new Error('the agent could not sign in');
+  return {
+    typing: async (conv, on) => (await req(`/gesoft-live-chat/agent/${conv}/typing`, {
+      method: 'POST', headers: formHeaders,
+      body: new URLSearchParams({ _token: csrf, typing: on ? '1' : '0' }).toString(),
+    })).json(),
+  };
+}
+
 const token = (t) => t.ev(`sessionStorage.getItem(${JSON.stringify(KEY)})`);
 const conversationOf = (tok) => one(`select conversation_id from gesoft_live_chat_sessions where token_hash='${sha(tok)}'`);
 
@@ -153,6 +187,36 @@ await a.ev(`(() => {
 await sleep(2500);
 check('Enter in the chat box sends the second message', one(`select count(*) from threads where conversation_id=${convA} and type=1`), '2');
 check('  and the first message was not sent again', one(`select count(*) from threads where conversation_id=${convA} and type=1 and body like 'Primul mesaj ${RUN}%'`), '1');
+
+// ------------------------------------------------------------ typing, both ways
+const agent = await agentSession();
+if (agent) {
+  const agentFirst = one(`select first_name from users where email='${process.env.GLC_AGENT_EMAIL}'`);
+  const dotsShown = `!${R}.querySelector('.typing').hidden`;
+  await agent.typing(convA, true);
+  check('an agent writing a reply shows three dots in the bubble', await waitFor(a.ev, dotsShown, 8000), true);
+  check("  with the agent's first name", await a.ev(`${R}.querySelector('.typing-text').textContent`), `${agentFirst} scrie…`);
+  await agent.typing(convA, false);
+  check('  and they go when the agent stops', await waitFor(a.ev, `!(${dotsShown})`, 8000), true);
+
+  const typeInBubble = (text) => a.ev(`(() => {
+    const t = ${R}.querySelector('.form textarea');
+    t.value = ${JSON.stringify(text)};
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  const agentHears = async (want) => {
+    for (let i = 0; i < 16; i++) {
+      if ((await agent.typing(convA, false)).visitor_typing === want) return true;
+      await sleep(500);
+    }
+    return false;
+  };
+  await typeInBubble('scriu ceva');
+  check('the visitor typing is told to the agent', await agentHears(true), true);
+  await typeInBubble('');
+  check('  and no longer once they clear the box', await agentHears(false), true);
+}
 
 // --------------------------------------------------- a reload keeps the chat
 await a.go();

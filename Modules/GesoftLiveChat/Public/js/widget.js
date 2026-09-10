@@ -65,9 +65,12 @@
             send: 'Trimite',
             waiting: 'Mulțumim! Un coleg vă răspunde în curând.',
             nobodyAvailable: 'Nu este niciun coleg disponibil chiar acum. Dacă nu puteți aștepta, lăsați-ne un mesaj și vă răspundem pe email.',
+            typing: 'Un coleg scrie…',
+            typingNamed: '{name} scrie…',
             errEmpty: 'Scrieți mai întâi un mesaj.',
             errEmail: 'Lăsați o adresă de email ca să vă putem răspunde.',
             errTooMany: 'Ați pornit prea multe conversații. Încercați din nou peste câteva minute.',
+            errTooFast: 'Trimiteți mesaje prea des. Așteptați câteva secunde.',
             errBlocked: 'Chatul nu este disponibil. Ne puteți scrie la {contact}.',
             errBlockedNoContact: 'Chatul nu este disponibil. Vă rugăm să ne contactați altfel.',
             errUnavailable: 'Chatul nu este disponibil momentan.',
@@ -103,9 +106,12 @@
             send: 'Send',
             waiting: 'Thank you! Someone will be with you shortly.',
             nobodyAvailable: 'Nobody is available right now. If you cannot wait, leave us a message and we will answer by email.',
+            typing: 'Someone is typing…',
+            typingNamed: '{name} is typing…',
             errEmpty: 'Please write a message first.',
             errEmail: 'Please leave an email address so we can answer you.',
             errTooMany: 'You have started too many conversations. Please try again in a few minutes.',
+            errTooFast: 'You are sending messages too quickly. Please wait a few seconds.',
             errBlocked: 'Chat is not available. You can write to us at {contact}.',
             errBlockedNoContact: 'Chat is not available. Please contact us another way.',
             errUnavailable: 'Chat is not available right now.',
@@ -136,6 +142,8 @@
     var ASK = attr('data-prechat') !== 'off' && !(IDENTITY.email || IDENTITY.name);
     var STORE = 'gesoft-live-chat-token';
     var POLL_MS = 3000;
+    // How long after the last keystroke the visitor still counts as typing.
+    var TYPING_MS = 4000;
 
     // The tab, not the browser. sessionStorage survives a reload and moving
     // between pages of the same site in the same tab, and dies with the tab.
@@ -159,6 +167,8 @@
     var noticed = {};
     var online = null;
     var unread = 0;
+    var typedAt = 0;
+    var lastPollAt = 0;
 
     // ---------------------------------------------------------------- markup
 
@@ -265,6 +275,13 @@
         '.note { align-self: center; max-width: 92%; text-align: center; font-size: 12px; color: var(--muted);',
         '  background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 7px 12px; }',
         '.note .btn { margin-top: 6px; }',
+        '.typing { display: flex; align-items: center; gap: 8px; padding: 0 14px 10px; font-size: 12px; color: var(--muted); background: var(--log); }',
+        '.dots { display: inline-flex; gap: 4px; padding: 9px 11px; border-radius: 14px; border-bottom-left-radius: 4px; background: var(--agent); border: 1px solid var(--agent-line); }',
+        '.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: typing 1.2s infinite ease-in-out; }',
+        '.dots i:nth-child(2) { animation-delay: .15s; }',
+        '.dots i:nth-child(3) { animation-delay: .3s; }',
+        '@keyframes typing { 0%, 80%, 100% { opacity: .3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }',
+        '@media (prefers-reduced-motion: reduce) { .dots i { animation: none; opacity: .6; } }',
         '.form { display: flex; align-items: flex-end; gap: 8px; padding: 10px; border-top: 1px solid var(--line); background: var(--bg); }',
         '.form textarea {',
         '  flex: 1; resize: none; min-height: 40px; max-height: 120px; padding: 9px 12px;',
@@ -311,6 +328,7 @@
         '  </form>',
         '  <div class="screen done" hidden><div class="check" aria-hidden="true">&#10003;</div><p class="t-done"></p></div>',
         '  <div class="log" role="log" aria-live="polite" hidden></div>',
+        '  <div class="typing" role="status" hidden><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="typing-text"></span></div>',
         '  <form class="form" hidden>',
         '    <textarea rows="1" maxlength="4000"></textarea>',
         '    <button class="send" type="submit">' + ICON_SEND + '</button>',
@@ -333,6 +351,7 @@
     var endBtn   = $('.end');
     var confirm  = $('.confirm');
     var dot      = $('.dot');
+    var typingBox = $('.typing');
     // Scoped to the chat form. The introduction has a textarea of its own that
     // comes first in the markup, and an unscoped lookup found that one: Enter
     // in the chat box did nothing, and Send re-sent the introduction's message.
@@ -384,6 +403,7 @@
         log.hidden = mode !== 'chat';
         form.hidden = mode !== 'chat';
         confirm.hidden = true;
+        if (mode !== 'chat') { typingBox.hidden = true; }
 
         var focus = mode === 'intro' ? intro.querySelector('[name=name]')
             : mode === 'offline' ? offline.querySelector('[name=name]')
@@ -477,6 +497,7 @@
             case 'empty': return T.errEmpty;
             case 'email_required': return T.errEmail;
             case 'too_many': return T.errTooMany;
+            case 'too_fast': return T.errTooFast;
             case 'blocked': return res.contact ? T.errBlocked.replace('{contact}', res.contact) : T.errBlockedNoContact;
             case 'closed': return T.closed;
             case 'unavailable': return T.errUnavailable;
@@ -500,8 +521,27 @@
         token = null;
         since = 0;
         seen = {};
+        typedAt = 0;
         endBtn.hidden = true;
         confirm.hidden = true;
+        typingBox.hidden = true;
+    }
+
+    // ---------------------------------------------------------------- typing
+
+    // Only that the visitor is typing, never what: nothing of the text leaves
+    // the page before they send it.
+    function visitorTyping() {
+        return !!token && Date.now() - typedAt < TYPING_MS && input.value.trim() !== '';
+    }
+
+    function paintTyping(sign) {
+        if (!sign || !token) {
+            typingBox.hidden = true;
+            return;
+        }
+        $('.typing-text').textContent = sign.name ? T.typingNamed.replace('{name}', sign.name) : T.typing;
+        typingBox.hidden = false;
     }
 
     // A new conversation starts on an empty window. The last one's messages
@@ -538,7 +578,9 @@
     function poll() {
         if (!token) { return; }
 
-        fetch(BASE + '/gesoft-live-chat/poll?token=' + encodeURIComponent(token) + '&since=' + since + '&lang=' + LANG)
+        lastPollAt = Date.now();
+        fetch(BASE + '/gesoft-live-chat/poll?token=' + encodeURIComponent(token) + '&since=' + since + '&lang=' + LANG
+            + '&typing=' + (visitorTyping() ? 1 : 0))
             .then(function (r) { return r.json(); })
             .then(function (res) {
                 if (!res || res.status !== 'success') { return; }
@@ -564,6 +606,10 @@
                         note(T.waiting);
                     }
                 }
+
+                // The server stops naming the agent once their message is
+                // in, so the dots give way to the message in the same answer.
+                paintTyping(res.typing);
 
                 if (res.closed) {
                     stopPolling();
@@ -723,6 +769,7 @@
         }
 
         input.value = '';
+        typedAt = 0;
         grow();
         sendBtn.disabled = true;
         if (!token) { fresh(); }
@@ -776,6 +823,21 @@
     }
 
     input.addEventListener('input', grow);
+
+    // Typing travels with the next poll. The first keystroke after a pause
+    // polls at once and starts the timer over, so the agent hears it within a
+    // moment — unless a poll has just gone out, because the route throttle
+    // counts every request and the poll already uses most of it.
+    input.addEventListener('input', function () {
+        var was = visitorTyping();
+        typedAt = input.value.trim() !== '' ? Date.now() : 0;
+
+        if (!was && visitorTyping() && timer && Date.now() - lastPollAt >= 2500) {
+            stopPolling();
+            poll();
+            startPolling();
+        }
+    });
     input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -798,9 +860,25 @@
         var t = token;
         stopPolling();
         forget();
-        post('end', { token: t }).catch(function () {});
+        endOnServer(t, 3);
         note(T.ended);
     });
+
+    // The visitor has been told the chat is over, so it has to be over. A
+    // refused or lost request used to be dropped, and the agent went on
+    // seeing the visitor as present until two minutes of silence gave them
+    // away; seen on the test instance when the route throttle refused it.
+    function endOnServer(t, attempts) {
+        post('end', { token: t })
+            .then(function (res) {
+                if (!res || res.status !== 'success') { throw new Error('refused'); }
+            })
+            .catch(function () {
+                if (attempts > 1) {
+                    setTimeout(function () { endOnServer(t, attempts - 1); }, 5000);
+                }
+            });
+    }
 
     // The tab is going away. A reload sends this too, a moment before polling
     // again, which is why the server treats it as "maybe gone" until the

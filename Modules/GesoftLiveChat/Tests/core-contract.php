@@ -197,6 +197,24 @@ $contract = [
         'cost'  => 'The bubble stops showing the agent\'s first name above their messages.',
     ],
     [
+        'what'  => 'modules can add to a conversation above its messages',
+        'file'  => 'resources/views/conversations/view.blade.php',
+        'needs' => ["@action('conversation.before_threads'"],
+        'cost'  => '"The customer is typing…" disappears from the conversation.',
+    ],
+    [
+        'what'  => 'the reply form says whether it holds a note',
+        'file'  => 'resources/views/conversations/view.blade.php',
+        'needs' => ['form-reply', 'name="is_note"'],
+        'cost'  => 'The visitor no longer sees that an agent is typing. The script reports nothing when it cannot find the field, so a note is never taken for a reply.',
+    ],
+    [
+        'what'  => 'the reply editor is Summernote, read the same way',
+        'file'  => 'public/js/main.js',
+        'needs' => ['note-editable', 'function isNote()', "name='is_note'"],
+        'cost'  => 'The visitor no longer sees that an agent is typing.',
+    ],
+    [
         'what'  => 'a web message can become an email conversation',
         'file'  => 'app/Conversation.php',
         'needs' => ['const TYPE_EMAIL', 'const SOURCE_TYPE_WEB'],

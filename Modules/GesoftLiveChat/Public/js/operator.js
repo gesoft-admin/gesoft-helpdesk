@@ -14,6 +14,8 @@
  *   - a count on the Chats link and next to the bell;
  *   - an alert that opens the chat, a sound, and a browser notification;
  *   - whether each chat's visitor is still there, as a mark in the chat list;
+ *   - "the customer is typing…" in a chat, and three dots in the visitor's
+ *     bubble while the agent writes a reply;
  *   - "are you still there?" and the block dialog, from More Actions.
  *
  * Words follow the agent's own interface language, read from the page core
@@ -45,6 +47,7 @@
             here: 'The customer is in the chat',
             left: 'The customer left the chat',
             ended: 'The customer ended the chat',
+            typing: 'The customer is typing…',
             failed: 'That did not work. Try again.'
         },
         ro: {
@@ -59,6 +62,7 @@
             here: 'Clientul este în chat',
             left: 'Clientul a părăsit chatul',
             ended: 'Clientul a încheiat chatul',
+            typing: 'Clientul scrie…',
             failed: 'Nu a funcționat. Încercați din nou.'
         }
     };
@@ -404,6 +408,58 @@
         modal.modal('show');
     });
 
+    // "The customer is typing…", and the other direction: whether this agent
+    // is writing a reply, so the visitor's bubble can show three dots. One
+    // request carries both, every three seconds, only on a chat conversation's
+    // page — the line is rendered there and nowhere else — and only while the
+    // page is visible.
+    var TYPING_MS = 3000;
+    var typedAt = 0;
+    var typingBusy = false;
+
+    // A reply, never a note. A note is written for colleagues, and a customer
+    // watching dots while somebody writes about them is what a note exists to
+    // avoid. Read from the field core submits the form with; if that field
+    // ever moves, nothing is reported rather than a note taken for a reply.
+    function writingReply() {
+        var field = $(".form-reply:first :input[name='is_note']:first");
+        if (!field.length || field.val()) { return false; }
+
+        return Date.now() - typedAt < TYPING_MS + 1000;
+    }
+
+    function typingBeat(id) {
+        if (typingBusy || document.hidden) { return; }
+        typingBusy = true;
+
+        $.post(base() + '/gesoft-live-chat/agent/' + id + '/typing', { _token: csrf(), typing: writingReply() ? 1 : 0 })
+            .done(function (res) {
+                // Found again every time rather than kept: core redraws parts
+                // of the conversation page when a message arrives.
+                var box = $('.gesoft-chat-typing').first(), on = !!(res && res.visitor_typing);
+                box.find('.gesoft-typing-text').text(on ? T.typing : '');
+                box.prop('hidden', !on);
+            })
+            .always(function () { typingBusy = false; });
+    }
+
+    function watchTyping() {
+        var id = $('.gesoft-chat-typing').first().data('conversation-id');
+        if (!id) { return; }
+
+        $(document).on('input', '.form-reply .note-editable', function () {
+            var was = writingReply();
+            typedAt = $.trim($(this).text()) !== '' ? Date.now() : 0;
+
+            // The first keystroke after a pause is told at once rather than
+            // at the next beat.
+            if (!was && writingReply()) { typingBeat(id); }
+        });
+
+        typingBeat(id);
+        setInterval(function () { typingBeat(id); }, TYPING_MS);
+    }
+
     $(function () {
         if (started) { return; }
         started = true;
@@ -414,5 +470,6 @@
         refresh(false);
         setInterval(function () { refresh(true); }, POLL_MS);
         subscribe(10);
+        watchTyping();
     });
 })(jQuery);

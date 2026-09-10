@@ -13,6 +13,7 @@ use Modules\GesoftLiveChat\Entities\AgentPresence;
 use Modules\GesoftLiveChat\Entities\ChatBlock;
 use Modules\GesoftLiveChat\Entities\ChatSession;
 use Modules\GesoftLiveChat\Support\Presence;
+use Modules\GesoftLiveChat\Support\Typing;
 
 /**
  * The visitor's half of live chat.
@@ -256,6 +257,10 @@ class ChatController extends Controller
             return $this->fail($request, __('This conversation is no longer open.', [], $lang), 404, 'closed', ['closed' => true]);
         }
 
+        if ($this->tooFast($session)) {
+            return $this->fail($request, __('You are sending messages too quickly. Please wait a few seconds.', [], $lang), 429, 'too_fast');
+        }
+
         $conversation = $session->conversation;
 
         $thread = Thread::createExtended(
@@ -270,6 +275,7 @@ class ChatController extends Controller
 
         $this->makeActive($conversation);
         $session->seen();
+        Typing::visitorStopped($conversation->id);
 
         return $this->ok($request, ['since' => $thread->id ?? 0]);
     }
@@ -285,6 +291,12 @@ class ChatController extends Controller
      * seconds without an answer that somebody will be with them, or that
      * nobody is available right now. It is worked out here on every poll and
      * never written into the conversation.
+     *
+     * The poll also carries "is typing" both ways: `typing=1` or `0` says
+     * whether the visitor is, and `typing` in the answer names the agent who
+     * is. Folded into the poll rather than sent separately because the route
+     * throttle counts every request, and a three-second poll already uses
+     * most of it.
      */
     public function poll(Request $request)
     {
@@ -322,10 +334,25 @@ class ChatController extends Controller
 
         $open = $session->canWrite();
         $notice = null;
+        $typing = null;
 
         if ($open) {
             $session->seen();
             $notice = $this->notice($conversation);
+
+            if (Typing::enabled()) {
+                $flag = (string) $request->input('typing', '');
+                if ($flag === '1') {
+                    Typing::visitorTyping($conversation);
+                } elseif ($flag === '0') {
+                    Typing::visitorStopped($conversation->id);
+                }
+
+                $name = Typing::agentTypingName($conversation);
+                if ($name !== null) {
+                    $typing = ['name' => $name !== '' ? $name : null];
+                }
+            }
         }
 
         return $this->ok($request, [
@@ -333,6 +360,7 @@ class ChatController extends Controller
             'since'    => $threads->count() ? $threads->last()->id : $since,
             'closed'   => !$open,
             'notice'   => $notice,
+            'typing'   => $typing,
         ]);
     }
 
@@ -507,6 +535,32 @@ class ChatController extends Controller
         }
 
         $limiter->hit($key, $minutes);
+
+        return false;
+    }
+
+    /**
+     * A ceiling on messages per chat, so one tab cannot bury an agent.
+     *
+     * Per session rather than per address. The route throttle is per address
+     * and has to be loose enough for an office full of visitors; this is what
+     * stops any one of them sending a message a second.
+     */
+    protected function tooFast(ChatSession $session)
+    {
+        $max = (int) config('gesoftlivechat.send_limit');
+        if ($max <= 0) {
+            return false;
+        }
+
+        $limiter = app(RateLimiter::class);
+        $key = 'gesoftlivechat:send:'.$session->id;
+
+        if ($limiter->tooManyAttempts($key, $max, 1)) {
+            return true;
+        }
+
+        $limiter->hit($key, 1);
 
         return false;
     }

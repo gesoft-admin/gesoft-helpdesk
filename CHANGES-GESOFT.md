@@ -60,6 +60,12 @@ back or is blocked, and an idle sweep counted from the agent's last reply.
 Customer chat messages are kept out of the notification bell, which the alert
 replaces.
 
+Each side sees that the other is typing: three dots in the bubble while an
+agent writes a reply, and "the customer is typing…" above the conversation
+while the visitor writes. Only that somebody is typing travels, never the
+text — Live Helper Chat shows agents the visitor's unsent words, and that is
+not copied — and an agent writing a note shows the visitor nothing.
+
 The agent-facing words are translated into Romanian through FreeScout's own
 JSON translations, as are those of `GesoftRemoteSupport`. The bubble speaks
 Romanian and English, and messages written into a chat automatically — the

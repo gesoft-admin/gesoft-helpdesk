@@ -8,8 +8,8 @@ End-to-end checks of the visitor endpoints against a running test instance.
     python3 Modules/GesoftLiveChat/Tests/e2e/visitor-api.py
 
 Optional: GLC_AGENT_EMAIL and GLC_AGENT_PASSWORD add the checks that need an
-agent — presence as the agent sees it, blocking and unblocking, and "are you
-still there?" in the visitor's language.
+agent — presence as the agent sees it, blocking and unblocking, "are you
+still there?" in the visitor's language, and "is typing" both ways.
 
 **Never point this at production.** It clears the application cache (the
 start limit is per address, and a test run is one address), rewrites session
@@ -30,6 +30,7 @@ import re
 import secrets
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -39,6 +40,7 @@ BASE = os.environ["GLC_BASE"].rstrip("/")
 SQL = os.environ["GLC_SQL"]
 ARTISAN = os.environ["GLC_ARTISAN"]
 START_LIMIT = int(os.environ.get("GLC_START_LIMIT", "3"))
+SEND_LIMIT = int(os.environ.get("GLC_SEND_LIMIT", "20"))
 RUN = secrets.token_hex(3)
 
 passed = 0
@@ -119,8 +121,9 @@ def start(name, email, message, headers=None, clear=True, lang="ro", extra=None)
     return r, b, None, None
 
 
-def poll(token, since=0, headers=None):
-    return body(http("GET", f"poll?token={urllib.parse.quote(token)}&since={since}", headers=headers))
+def poll(token, since=0, headers=None, typing=None):
+    extra = "" if typing is None else f"&typing={typing}"
+    return body(http("GET", f"poll?token={urllib.parse.quote(token)}&since={since}{extra}", headers=headers))
 
 
 def send(token, message):
@@ -313,6 +316,27 @@ check("  and a forged X-Forwarded-For does not get round it", (rr[0], body(rr).g
 check("  polling an open chat is not affected by it", poll(tx).get("closed"), False)
 artisan("cache:clear")
 
+# ----------------------------------------------------- the ceiling per address
+# Found by the browser suites on 2026-09-10: at 30 requests a minute per
+# address, one tab polling every three seconds used 20, and "End" from a second
+# tab was refused without a word.
+_, _, tr, cr = start(f"E2E plafon {RUN}", f"e2e-r-{RUN}@gesoft.test", f"Plafon {RUN}")
+codes = {http("GET", f"poll?token={tr}&since=0")[0] for _ in range(60)}
+check("three tabs' worth of polling in a minute is not refused", codes, {200})
+check("  and the visitor can still write", send(tr, f"după multe interogări {RUN}")[0], 200)
+check("  and end the chat", http("POST", "end", {"token": tr})[0], 200)
+check("  and the end is recorded", lines(cr, 100), "1")
+
+# What one chat may send.
+_, _, ts, cs = start(f"E2E rafala {RUN}", f"e2e-s-{RUN}@gesoft.test", f"Rafala {RUN}")
+sent = [send(ts, f"rafala {RUN} {i}") for i in range(SEND_LIMIT + 1)]
+check(f"{SEND_LIMIT} messages a minute from one chat are taken, the next is refused",
+      [c for c, _ in sent], [200] * SEND_LIMIT + [429])
+check("  with a code the bubble can explain", sent[-1][1].get("code"), "too_fast")
+check("  and a message saying so in the visitor's language", sent[-1][1].get("msg"), "Trimiteți mesaje prea des. Așteptați câteva secunde.")
+check("  while another chat from the same address can still write", send(tx, f"alt chat {RUN}")[0], 200)
+artisan("cache:clear")
+
 # ------------------------------------------------------------ the agent's side
 if os.environ.get("GLC_AGENT_EMAIL"):
     jar = CookieJar()
@@ -358,6 +382,36 @@ if os.environ.get("GLC_AGENT_EMAIL"):
     agent_post(f"/gesoft-live-chat/agent/{cen}/nudge", {})
     check("  and in English for an English one",
           one(f"select body from threads where conversation_id={cen} and type=2 order by id desc limit 1"), "Are you still there?")
+
+    # "Is typing", both ways. Only that somebody is; the flag carries no text.
+    agent_first = one(f"select first_name from users where email='{os.environ['GLC_AGENT_EMAIL']}'")
+    _, _, tt, ct = start(f"E2E scrie {RUN}", f"e2e-t-{RUN}@gesoft.test", f"Scriu {RUN}")
+
+    def typing(conv, on):
+        return agent_post(f"/gesoft-live-chat/agent/{conv}/typing", {"typing": 1 if on else 0})
+
+    # A sign in the same second as the last message counts as the typing that
+    # produced it, and would not show.
+    time.sleep(1.2)
+    status, res = typing(ct, False)
+    check("typing: the agent is told nobody is typing at first", (status, res.get("visitor_typing")), (200, False))
+    poll(tt, typing=1)
+    check("  a visitor typing is told to the agent", typing(ct, False)[1].get("visitor_typing"), True)
+    poll(tt, typing=0)
+    check("  and no longer once they clear the box", typing(ct, False)[1].get("visitor_typing"), False)
+    poll(tt, typing=1)
+    send(tt, f"Am scris {RUN}")
+    check("  nor once their message is in", typing(ct, False)[1].get("visitor_typing"), False)
+    typing(ct, True)
+    check("an agent typing is told to the visitor, by first name", poll(tt).get("typing"), {"name": agent_first})
+    typing(ct, False)
+    check("  and no longer once they stop", poll(tt).get("typing"), None)
+    typing(ct, True)
+    agent_post(f"/gesoft-live-chat/agent/{ct}/nudge", {})
+    check("  nor once their message is in", poll(tt).get("typing"), None)
+    typing(ct, True)
+    close(ct)
+    check("a closed chat tells the visitor nothing about typing", poll(tt).get("typing"), None)
 
     block_email = f"e2e-blocat-{RUN}@gesoft.test"
     _, _, tb, cb = start(f"E2E blocat {RUN}", block_email, f"Blocat {RUN}")

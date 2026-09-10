@@ -186,6 +186,13 @@ namespace {
     check('translations are loaded from the module', strpos((string) $TRANSLATIONS, 'Resources/lang') !== false, true);
     check('chat actions are added to More Actions', isset(Eventy::$stub->actions['conversation.append_action_buttons']), true);
     check('the blocked visitors page is added to Manage', isset(Eventy::$stub->actions['menu.manage.append']), true);
+    check('the typing line is added above the messages', isset(Eventy::$stub->actions['conversation.before_threads']), true);
+    ob_start(); \Eventy::action('conversation.before_threads', new ConversationStub(false)); $rendered = ob_get_clean();
+    check('  but not on an email conversation', $rendered, '');
+    $CONFIG['gesoftlivechat.typing'] = false;
+    ob_start(); \Eventy::action('conversation.before_threads', new ConversationStub(true)); $rendered = ob_get_clean();
+    check('  nor with typing switched off', $rendered, '');
+    unset($CONFIG['gesoftlivechat.typing']);
 
     // A customer's chat message is announced by the in-page alert, so the bell
     // must not file it as well — and nothing else may be cancelled with it.

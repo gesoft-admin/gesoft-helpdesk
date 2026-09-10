@@ -189,6 +189,19 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
             ])->render();
         }, 30, 2);
 
+        // "The customer is typing…", above the conversation's messages, on
+        // chat conversations only. Rendered hidden; operator.js shows it and
+        // writes its words in the agent's language.
+        \Eventy::addAction('conversation.before_threads', function ($conversation) {
+            if (!$conversation || !$conversation->isChat() || !config('gesoftlivechat.typing')) {
+                return;
+            }
+
+            echo \View::make('gesoftlivechat::partials/typing', [
+                'conversation' => $conversation,
+            ])->render();
+        }, 20, 1);
+
         // Manage → Blocked chat visitors, for administrators, next to core's
         // own management pages.
         \Eventy::addAction('menu.manage.append', function () {

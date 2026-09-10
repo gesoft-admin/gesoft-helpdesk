@@ -27,6 +27,32 @@ final class Presence
     const LANGS = ['ro', 'en'];
 
     /**
+     * How long one sign of typing lasts, in seconds. Each side reports every
+     * three seconds while it types, so two missed reports end it.
+     */
+    const TYPING_FOR = 6;
+
+    /**
+     * Whether "is typing" should show.
+     *
+     * Only a recent sign, and only one newer than that side's last message:
+     * the typing that produced a message ends when the message arrives, not
+     * six seconds later underneath it. Timestamps are whole seconds, so a sign
+     * in the same second as the message counts as the one that produced it.
+     */
+    public static function showTyping($typing_at, $last_message_at, $now, $for = self::TYPING_FOR)
+    {
+        if ($typing_at === null) {
+            return false;
+        }
+
+        $age = $now - $typing_at;
+
+        return $age >= 0 && $age < $for
+            && ($last_message_at === null || $typing_at > $last_message_at);
+    }
+
+    /**
      * The visitor's language from what the bubble asked for, or the default.
      *
      * Only the two the bubble has words for; anything else would produce

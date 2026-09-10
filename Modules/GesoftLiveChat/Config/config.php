@@ -74,6 +74,25 @@ return [
     'start_window' => env('GESOFT_LIVE_CHAT_START_WINDOW', 10),
 
     /**
+     * Requests a minute to the visitor endpoints from one address, all of them
+     * together: polls, messages, "End", the status check.
+     *
+     * A ceiling against floods, not a budget for one visitor. A chat polls
+     * twenty times a minute, so this is roughly how many chats one address
+     * can hold at once, times twelve — an office behind one address is several
+     * visitors. The old value of 30 refused a second tab.
+     */
+    'rate_per_minute' => env('GESOFT_LIVE_CHAT_RATE_PER_MINUTE', 240),
+
+    /**
+     * Messages a minute one chat may send. Zero switches it off.
+     *
+     * Per chat rather than per address, so a visitor pasting a burst is slowed
+     * down and the colleague behind the same address is not.
+     */
+    'send_limit' => env('GESOFT_LIVE_CHAT_SEND_LIMIT', 20),
+
+    /**
      * How often a visitor's poll is written down as "still here", in seconds.
      * Polls in between are answered without a write.
      */
@@ -149,6 +168,16 @@ return [
      * only, never written into the conversation.
      */
     'wait_after' => env('GESOFT_LIVE_CHAT_WAIT_AFTER', 60),
+
+    /**
+     * Whether each side sees that the other is typing: three dots in the
+     * bubble while an agent writes a reply, and "the customer is typing…"
+     * above the conversation while the visitor writes. A note never shows.
+     *
+     * Only that somebody is typing, never what. Live Helper Chat also shows
+     * the agent the visitor's unsent text; that is deliberately not copied.
+     */
+    'typing' => env('GESOFT_LIVE_CHAT_TYPING', true),
 
     /**
      * The language of automatic messages when the bubble did not say which:

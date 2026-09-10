@@ -66,6 +66,16 @@ while the visitor writes. Only that somebody is typing travels, never the
 text — Live Helper Chat shows agents the visitor's unsent words, and that is
 not copied — and an agent writing a note shows the visitor nothing.
 
+An agent's chat reply stays on the page. Core reloads the whole conversation
+after every chat reply; the module lets core validate and send it as before,
+and replaces only the reload. The message is added to the conversation, the
+status and assignee are brought up to date, and the editor stays open and
+empty. If that fails, core's reload runs.
+
+Starting a conversation is limited per address, 20 in ten minutes, because
+an address is often a whole office. What a single chat may send is limited
+separately.
+
 The agent-facing words are translated into Romanian through FreeScout's own
 JSON translations, as are those of `GesoftRemoteSupport`. The bubble speaks
 Romanian and English, and messages written into a chat automatically — the

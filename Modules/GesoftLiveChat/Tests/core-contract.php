@@ -215,6 +215,37 @@ $contract = [
         'cost'  => 'The visitor no longer sees that an agent is typing.',
     ],
     [
+        'what'  => 'a chat reply is sent through fsAjax and core reloads after it',
+        'file'  => 'public/js/main.js',
+        'needs' => [
+            'function fsAjax(data, url, success_callback, no_loader, error_callback, custom_options)',
+            "data += '&action=send_reply'",
+            "fsAjax(data, laroute.route('conversations.ajax'), function(response) {",
+            'var fs_processing_send_reply', 'var fs_reply_changed', 'function loaderHide()',
+            '.attachments-upload:first :input, .attachments-upload:first li',
+            "#conv-status .conv-status li.active a:first", "#conv-assignee .conv-user li.active a:first",
+        ],
+        'cost'  => 'An agent\'s chat reply reloads the whole conversation again, or leaves the editor disabled after sending.',
+    ],
+    [
+        'what'  => 'the conversation page lists messages by id under one container',
+        'file'  => 'resources/views/conversations/partials/thread.blade.php',
+        'needs' => ['id="thread-{{ $thread->id }}"'],
+        'cost'  => 'A sent chat reply does not appear until the page is reloaded.',
+    ],
+    [
+        'what'  => 'the reply form carries its draft id, inside the chat layout',
+        'file'  => 'resources/views/conversations/view.blade.php',
+        'needs' => ['id="conv-layout-main"', 'name="thread_id"', 'conv-type-{{ strtolower($conversation->getTypeName()) }}'],
+        'cost'  => 'A second chat reply is refused as "already sent", or the page reloads after every reply again.',
+    ],
+    [
+        'what'  => 'a chat reply in chat mode leaves no undo message behind',
+        'file'  => 'app/Http/Controllers/ConversationsController.php',
+        'needs' => ['if ($conversation->isChat() && \Helper::isChatMode()) {', 'if ($can_undo) {'],
+        'cost'  => 'Without a reload, an "Email sent — Undo" message waits in the session and appears on the next page the agent opens.',
+    ],
+    [
         'what'  => 'a web message can become an email conversation',
         'file'  => 'app/Conversation.php',
         'needs' => ['const TYPE_EMAIL', 'const SOURCE_TYPE_WEB'],

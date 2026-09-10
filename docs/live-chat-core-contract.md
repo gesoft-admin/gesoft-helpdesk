@@ -52,6 +52,9 @@ Baseline: FreeScout `1.8.239`.
 | `Thread::created_by_user_cached()` | `app/Thread.php` | The bubble stops showing the agent's first name. |
 | `Conversation::TYPE_EMAIL`, `SOURCE_TYPE_WEB` | `app/Conversation.php` | A message left while nobody is available cannot become an email conversation. |
 | `conversation.before_threads` action | `resources/views/conversations/view.blade.php` | "The customer is typing…" disappears from the conversation. |
+| A chat reply sent through the global `fsAjax()` with `action=send_reply`, the send globals (`fs_processing_send_reply`, `fs_reply_changed`), `loaderHide()`, and the status and assignee menus core's realtime handler updates | `public/js/main.js` | An agent's chat reply reloads the whole conversation again — the module replaces only that reload — or leaves the editor disabled. |
+| Messages rendered as `#thread-<id>` under `#conv-layout-main`, and the draft id in the reply form's `thread_id` | `resources/views/conversations/partials/thread.blade.php`, `resources/views/conversations/view.blade.php` | A sent reply does not appear without a reload, or a second reply is refused as "already sent". |
+| No undo, and so no flash message, for a chat reply in chat mode | `app/Http/Controllers/ConversationsController.php` | With no reload to consume it, an "Email sent — Undo" message would appear on the next page the agent opens. |
 | The reply form's hidden `is_note` field, and Summernote's `.note-editable` inside `.form-reply` | `resources/views/conversations/view.blade.php`, `public/js/main.js` | The visitor stops seeing that an agent is typing. The script reports nothing when it cannot find the field, so a field that moves never turns a note into dots. |
 
 ## Two behaviours that are contracts even though nothing enforces them

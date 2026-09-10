@@ -16,7 +16,8 @@
  *   - whether each chat's visitor is still there, as a mark in the chat list;
  *   - "the customer is typing…" in a chat, and three dots in the visitor's
  *     bubble while the agent writes a reply;
- *   - "are you still there?" and the block dialog, from More Actions.
+ *   - "are you still there?" and the block dialog, from More Actions;
+ *   - a chat reply that stays on the page instead of reloading it.
  *
  * Words follow the agent's own interface language, read from the page core
  * rendered; English is the fallback.
@@ -460,6 +461,123 @@
         setInterval(function () { typingBeat(id); }, TYPING_MS);
     }
 
+    // A reply in a chat stays on the page.
+    //
+    // After an agent sends a chat reply, core reloads the whole conversation
+    // (`window.location.href = ''` in main.js): the editor is disabled, the
+    // page blinks and forgets where it was scrolled, and the agent waits for
+    // it to come back before writing the next line. Only that reload is
+    // replaced. Validation, drafts and the send itself stay core's, through
+    // core's own request; this sees the answer first — for a chat reply in
+    // chat mode only, never a note, never an email.
+    //
+    // If putting the page right throws, core's reload runs as before.
+    function keepChatRepliesOnPage() {
+        if (typeof window.fsAjax !== 'function'
+            || !$('#conv-layout').hasClass('conv-type-chat')
+            || !$('body').hasClass('chat-mode')
+        ) {
+            return;
+        }
+
+        var coreAjax = window.fsAjax;
+
+        window.fsAjax = function (data, url, success_callback, no_loader, error_callback, custom_options) {
+            var chatReply = typeof data === 'string'
+                && /(^|&)action=send_reply(&|$)/.test(data)
+                && !/(^|&)is_note=1(&|$)/.test(data)
+                && typeof success_callback === 'function';
+
+            if (!chatReply) {
+                return coreAjax.apply(this, arguments);
+            }
+
+            return coreAjax.call(this, data, url, function (response) {
+                if (!response || response.status !== 'success') {
+                    return success_callback(response);
+                }
+                try {
+                    replySent();
+                } catch (e) {
+                    return success_callback(response);
+                }
+            }, no_loader, error_callback, custom_options);
+        };
+    }
+
+    // What core's callback and the reload between them used to reset.
+    function replySent() {
+        window.fs_processing_send_reply = false;
+        if (typeof loaderHide === 'function') { loaderHide(); }
+
+        var form = $('.form-reply:first');
+
+        // The draft this reply was autosaved as is a sent message now. Left in
+        // the form, the next autosave or send would point at it, and core
+        // refuses that with "Message has been already sent".
+        form.find(':input[name="thread_id"]').val('');
+        form.find(':input[name="saved_reply_id"]').val('');
+        $('.attachments-upload:first :input, .attachments-upload:first li').remove();
+
+        var body = $('#body');
+        body.summernote('enable');
+        body.summernote('code', '');
+        body.val('');
+        window.fs_reply_changed = false;
+        $('.btn-reply-submit').button('reset');
+        typedAt = 0;
+
+        refreshConversation();
+        body.summernote('focus');
+    }
+
+    // The reply as the server now shows it, and the status and assignee it
+    // left behind — a reply makes a chat pending and the agent's — from the
+    // conversation page, fetched in the background.
+    function refreshConversation() {
+        $.get(window.location.href).done(function (html) {
+            var page = $('<div>').append($.parseHTML(String(html)));
+            var main = $('#conv-layout-main');
+
+            // Messages not on screen yet, in the order the page lists them,
+            // newest first, above the ones already there: where core's own
+            // realtime handler puts a colleague's reply.
+            var fresh = page.find('#conv-layout-main > .thread[id^="thread-"]').filter(function () {
+                return !document.getElementById(this.id);
+            });
+            if (fresh.length) {
+                var first = main.children('.thread').first();
+                if (first.length) { fresh.insertBefore(first); } else { main.append(fresh); }
+            }
+
+            syncMenu(page, '#conv-status', '.conv-status', 'data-status');
+            syncMenu(page, '#conv-assignee', '.conv-user', 'data-user_id');
+        });
+    }
+
+    // The same few changes core's realtime handler makes when a colleague
+    // changes the status or the assignee: the active item, the label, and the
+    // button's colour and icon.
+    function syncMenu(page, block, list, attr) {
+        var value = page.find(block + ' ' + list + ' li.active a:first').attr(attr);
+        var here = $(block);
+        if (value === undefined || here.find(list + ' li.active a:first').attr(attr) === value) {
+            return;
+        }
+
+        here.find(list + ' li.active').removeClass('active');
+        var item = here.find(list + ' li a[' + attr + '="' + value + '"]').first();
+        item.parent().addClass('active');
+        here.find('.conv-info-val span:first').text(item.text());
+
+        var theirs = page.find(block + ' .btn');
+        here.find('.btn').each(function (i) {
+            if (theirs[i]) { this.className = theirs[i].className; }
+        });
+        var icon = page.find(block + ' .btn:first .glyphicon').attr('class');
+        if (icon) { here.find('.btn:first .glyphicon').attr('class', icon); }
+    }
+
     $(function () {
         if (started) { return; }
         started = true;
@@ -471,5 +589,6 @@
         setInterval(function () { refresh(true); }, POLL_MS);
         subscribe(10);
         watchTyping();
+        keepChatRepliesOnPage();
     });
 })(jQuery);

@@ -64,13 +64,16 @@ return [
      * Separate from the route throttle, which counts every request including
      * the three-second poll and so has to be generous. Starting is the call
      * that creates something an agent must read, so it gets a budget of its
-     * own. Live Helper Chat ships with no limit here at all.
+     * own. Live Helper Chat ships with no limit here at all; it relies on a
+     * token tied to the address and the browser's headers, and on bans.
      *
-     * A closed chat is not reopened from the bubble — the visitor starts a new
-     * one — so a real customer may use more than one start in an afternoon.
-     * Three in ten minutes leaves room for that and not for a script.
+     * Per address, and an address is often an office: several people behind
+     * one router, each of whom may start a chat, end it and start another. It
+     * was three in ten minutes, which a single office used up. Twenty leaves
+     * room for that and still stops a script filling the chat list; what one
+     * chat may then send is limited separately (`send_limit`).
      */
-    'start_limit'  => env('GESOFT_LIVE_CHAT_START_LIMIT', 3),
+    'start_limit'  => env('GESOFT_LIVE_CHAT_START_LIMIT', 20),
     'start_window' => env('GESOFT_LIVE_CHAT_START_WINDOW', 10),
 
     /**

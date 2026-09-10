@@ -223,6 +223,68 @@ await ev(`(() => { const f = document.querySelector(".form-reply input[name='is_
 await sleep(20000);  // notifications go through the queue
 check('customer chat messages added nothing under the bell', one(`select count(*) from notifications`), bellBefore);
 
+// ------------------------------------------------ a chat reply stays on the page
+// Reported on 2026-09-10: sending from the agent's console reloaded the whole
+// conversation, disabling the editor on the way. Core sends on Enter only in
+// chat mode, so the chat is opened in it on purpose.
+//
+// The note written above is remembered by core in the browser, and its draft
+// in the database; either would come back into the editor, the note in note
+// mode, where Enter sends nothing. Start from an empty reply.
+await ev(`(() => { if (typeof forgetNote === 'function') { forgetNote(${Number(here.conv)}); } return true; })()`);
+sql(`delete from threads where conversation_id=${here.conv} and state=1`);
+await open(`/conversation/${here.conv}?chat_mode=1`);
+await waitFor(`!!document.querySelector('.form-reply .note-editable')`, 15000);
+await sleep(1000);
+check('the chat is open in chat mode, with an empty reply',
+  await ev(`document.body.classList.contains('chat-mode') && !$(".form-reply:first :input[name='is_note']").val() && !$('#body').val()`), true);
+await ev(`window.__gesoftStay = 'still here'; true`);
+const sendState = () => ev(`({
+  focus: (document.activeElement || {}).className || '',
+  body: ($('#body').val() || '').slice(0, 60),
+  sending: window.fs_processing_send_reply,
+  savingDraft: window.fs_processing_save_draft,
+  modal: $('.modal:visible').length,
+  button: $('div.conv-block:not(.conv-note-block) div.conv-reply-body:visible .btn-reply-submit:first').length,
+})`);
+const pressEnterIn = async (text) => {
+  await typeInEditor(text, false);
+  await sleep(500);
+  console.log('        before Enter: ' + JSON.stringify(await sendState()));
+  await S('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+  await S('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+};
+const agentReplies = () => Number(one(`select count(*) from threads where conversation_id=${here.conv} and type=2 and state=2`));
+const waitForReplies = async (n) => {
+  for (let i = 0; i < 20; i++) { if (agentReplies() >= n) return true; await sleep(750); }
+  return false;
+};
+const onScreen = (text) => `[...document.querySelectorAll('#conv-layout-main .thread')].some(t => t.innerText.includes(${JSON.stringify(text)}))`;
+const repliesBefore = agentReplies();
+
+await pressEnterIn(`Primul răspuns ${RUN}`);
+check('an agent reply in a chat is sent', await waitForReplies(repliesBefore + 1), true);
+check('  and appears in the conversation', await waitFor(onScreen(`Primul răspuns ${RUN}`), 10000), true);
+check('  without reloading the page', await ev(`window.__gesoftStay || null`), 'still here');
+check('  leaving the editor empty and usable',
+  await waitFor(`(() => { const e = document.querySelector('.form-reply .note-editable'); return !!e && e.isContentEditable && e.innerText.trim() === ''; })()`, 5000), true);
+check('  and no draft id behind', await ev(`document.querySelector(".form-reply input[name='thread_id']").value`), '');
+
+await pressEnterIn(`Al doilea răspuns ${RUN}`);
+check('a second reply straight after is sent too', await waitForReplies(repliesBefore + 2), true);
+check('  and appears above the first', await waitFor(`(() => {
+  const texts = [...document.querySelectorAll('#conv-layout-main .thread')].map(t => t.innerText);
+  const second = texts.findIndex(t => t.includes(${JSON.stringify(`Al doilea răspuns ${RUN}`)}));
+  const first = texts.findIndex(t => t.includes(${JSON.stringify(`Primul răspuns ${RUN}`)}));
+  return second !== -1 && first !== -1 && second < first;
+})()`, 10000), true);
+check('  still without a reload', await ev(`window.__gesoftStay || null`), 'still here');
+check('the status shown is the one the server set',
+  await waitFor(`convGetStatus() === ${Number(one(`select status from conversations where id=${here.conv}`))}`, 5000), true);
+const visitorSees = (await pollOnce(here)).messages.map((m) => m.body);
+check('the visitor receives both replies',
+  visitorSees.includes(`Primul răspuns ${RUN}`) && visitorSees.includes(`Al doilea răspuns ${RUN}`), true);
+
 // ------------------------------------------------------------ blocking a visitor
 const blockedEmail = `e2e-op-blocat-${RUN}@gesoft.test`;
 const blocked = await visitor(`E2E de blocat ${RUN}`, `Deranjez ${RUN}`, blockedEmail);

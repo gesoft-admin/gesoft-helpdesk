@@ -39,7 +39,7 @@ from http.cookiejar import CookieJar
 BASE = os.environ["GLC_BASE"].rstrip("/")
 SQL = os.environ["GLC_SQL"]
 ARTISAN = os.environ["GLC_ARTISAN"]
-START_LIMIT = int(os.environ.get("GLC_START_LIMIT", "3"))
+START_LIMIT = int(os.environ.get("GLC_START_LIMIT", "20"))
 SEND_LIMIT = int(os.environ.get("GLC_SEND_LIMIT", "20"))
 RUN = secrets.token_hex(3)
 

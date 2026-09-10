@@ -20,8 +20,8 @@ import { createHash } from 'node:crypto';
 const BASE = process.env.GLC_BASE.replace(/\/$/, '');
 const CDP = process.env.GLC_CDP || 'http://localhost:9222';
 const SQL = process.env.GLC_SQL;
-// Optional. The start limit is three per ten minutes per address, and this
-// suite starts more than three; without it the last start is refused.
+// Optional. Clears the start limit per address partway through, so the suite
+// does not depend on how many chats earlier runs started.
 const ARTISAN = process.env.GLC_ARTISAN;
 const DEMO = BASE + '/gesoft-live-chat/demo';
 const KEY = 'gesoft-live-chat-token';
@@ -290,9 +290,18 @@ check('  and polling does not bring the old messages back',
   await a.ev(`!${R}.querySelector('.log').innerText.includes('Al doilea mesaj')`), true);
 
 // ------------------------------------------------------ nobody available: the form
-agentsAway();
-const d = await tab();
-await openBubble(d, 'offline');
+// An agent signed in to the test instance in a real browser marks themselves
+// present every ten seconds, and can do it between marking everybody away and
+// the bubble asking. Try again rather than fail on somebody else's tab.
+let d = null;
+for (let attempt = 0; attempt < 4; attempt++) {
+  agentsAway();
+  d = await tab();
+  await openBubble(d, 'offline');
+  if ((await mode(d)) === 'offline' || attempt === 3) break;
+  await d.close();
+  await sleep(1500);
+}
 check('with nobody around, the bubble offers the message form', await mode(d), 'offline');
 check('  and the header says so', await d.ev(`${R}.querySelector('.status-text').textContent`), 'Lăsați-ne un mesaj');
 await fill(d, 'offline', `E2E offline ${RUN}`, `e2e-offline-${RUN}@gesoft.test`, `Mesaj offline ${RUN}`);

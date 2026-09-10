@@ -123,6 +123,23 @@ class AgentController extends Controller
             $from = Conversation::find($latest_message->conversation_id);
         }
 
+        // How many different chats have spoken since the message the browser
+        // last saw. One means the alert can open that chat; more means any
+        // single chat would be a guess, so it opens the list instead.
+        $since = (int) $request->input('since', 0);
+        $new_conversations = 0;
+        if ($since > 0) {
+            $new_conversations = \App\Thread::whereIn('conversation_id', $conversation_ids)
+                ->where('type', \App\Thread::TYPE_CUSTOMER)
+                ->where('state', \App\Thread::STATE_PUBLISHED)
+                ->where('id', '>', $since)
+                ->distinct()
+                ->count('conversation_id');
+        }
+
+        $mailbox_id = $latest->mailbox_id ?? ($mailbox_ids->first() ?? 0);
+        $list_mailbox_id = $from->mailbox_id ?? $mailbox_id;
+
         return response()->json([
             'status'      => 'success',
             'count'       => $query->count(),
@@ -131,11 +148,18 @@ class AgentController extends Controller
             'latest_at'   => $latest && $latest->last_reply_at ? $latest->last_reply_at->timestamp : 0,
             'latest_name' => $from && $from->customer ? $from->customer->getFullName(true) : '',
             'latest_conversation_id' => $latest_message->conversation_id ?? 0,
+            // Built by core, the same way its own chat list builds them, so the
+            // browser never has to know what a conversation URL looks like.
+            'latest_url'  => $from ? $from->url(null, null, ['chat_mode' => 1]) : '',
+            'list_url'    => $list_mailbox_id && \Route::has('conversations.chats')
+                ? route('conversations.chats', ['mailbox_id' => $list_mailbox_id])
+                : '',
+            'new_conversations' => $new_conversations,
             // Where the header indicator should send an agent who clicks it.
             // Pages outside a mailbox have no mailbox of their own, so the
             // answer travels with the count rather than being guessed in the
             // browser.
-            'mailbox_id'  => $latest->mailbox_id ?? ($mailbox_ids->first() ?? 0),
+            'mailbox_id'  => $mailbox_id,
         ]);
     }
 }

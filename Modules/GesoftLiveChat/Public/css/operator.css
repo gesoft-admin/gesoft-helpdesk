@@ -83,6 +83,15 @@
     border-left-color: #c08a2e;
 }
 
+/* Core's floating alert, made into a way to the chat it announces. */
+.alert-floating.gesoft-chat-alert {
+    cursor: pointer;
+}
+
+.alert-floating.gesoft-chat-alert:hover {
+    filter: brightness(.96);
+}
+
 .chats li.chat-item:not(.new):not(.active) .chat-preview,
 .chats li.chat-item:not(.new):not(.active) .folder-name {
     opacity: .62;

@@ -114,7 +114,32 @@
         }
     }
 
-    function announce(name) {
+    function isLookingAt(conversation_id) {
+        if (!conversation_id || document.hidden) { return false; }
+        try {
+            return String(getGlobalAttr('conversation_id')) === String(conversation_id);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // The alert offers the chat; it never takes the agent there by itself. An
+    // agent halfway through a reply to a ticket would lose it, and two
+    // customers typing at once would bounce them between chats.
+    function announce(res) {
+        var several = res.new_conversations > 1;
+
+        // The agent is reading that chat already, and the message is on the
+        // screen in front of them. Telling them again is noise.
+        if (!several && isLookingAt(res.latest_conversation_id)) { return; }
+
+        // One chat: open that one. Several: any single one would be a guess,
+        // so open the list and let the agent choose.
+        var target = several ? (res.list_url || res.latest_url) : (res.latest_url || res.list_url);
+        var title = several
+            ? res.new_conversations + ' chaturi cu mesaje noi'
+            : (res.latest_name ? 'Mesaj nou de la ' + res.latest_name : 'Mesaj nou în chat');
+
         // Core's own cue, so chat sounds like the rest of the application
         // rather than like a second product bolted on.
         if (typeof playAudioNotification === 'function') {
@@ -126,17 +151,30 @@
         // told about is the failure this whole file exists to prevent.
         if (typeof showFloatingAlert === 'function') {
             try {
-                showFloatingAlert('success', name ? 'Chat nou: ' + name : 'Chat nou');
+                showFloatingAlert('success', target ? title + ' — click pentru a deschide' : title);
+
+                // Core's alert is plain text and not a link. It appends to the
+                // body and returns, so the last one is the one just made.
+                if (target) {
+                    $('.alert-floating').last()
+                        .addClass('gesoft-chat-alert')
+                        .attr('title', 'Deschide')
+                        .on('click', function () { window.location.href = target; });
+                }
             } catch (e) {}
         }
 
         if (typeof Push === 'undefined' || !Push.Permission.has()) { return; }
 
         try {
-            Push.create(name ? 'Chat nou: ' + name : 'Chat nou', {
-                body: 'Un vizitator așteaptă un răspuns.',
+            Push.create(title, {
+                body: several ? 'Deschide lista de chaturi.' : 'Un vizitator așteaptă un răspuns.',
                 timeout: 8000,
-                onClick: function () { window.focus(); this.close(); }
+                onClick: function () {
+                    window.focus();
+                    if (target) { window.location.href = target; }
+                    this.close();
+                }
             });
         } catch (e) {}
     }
@@ -145,7 +183,11 @@
         var u = endpoint();
         if (!u) { return; }
 
-        $.getJSON(u).done(function (res) {
+        // What the browser has already seen, so the answer can say how many
+        // different chats have spoken since.
+        var params = known_latest ? { since: known_latest } : {};
+
+        $.getJSON(u, params).done(function (res) {
             if (!res || res.status !== 'success') { return; }
 
             paint(res.count);
@@ -160,7 +202,7 @@
             }
 
             if (announce_new && res.latest_id && res.latest_id > known_latest) {
-                announce(res.latest_name);
+                announce(res);
             }
             known_latest = res.latest_id;
 

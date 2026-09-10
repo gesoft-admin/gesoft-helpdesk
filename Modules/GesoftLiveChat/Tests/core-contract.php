@@ -95,6 +95,24 @@ $contract = [
         'needs' => ["'open' =>"],
         'cost'  => 'Not used yet. F2B needs it for the widget endpoints; without it they would demand a CSRF token the customer cannot have.',
     ],
+    [
+        'what'  => 'a module can raise core\'s floating alert',
+        'file'  => 'public/js/main.js',
+        'needs' => ['function showFloatingAlert', 'alert-floating', "$('body:first').append(html)", 'function getGlobalAttr'],
+        'cost'  => 'The in-page alert for a new chat message disappears, or appears but no longer opens the chat when clicked.',
+    ],
+    [
+        'what'  => 'the conversation page says which conversation it shows',
+        'file'  => 'resources/views/conversations/view.blade.php',
+        'needs' => ['data-conversation_id'],
+        'cost'  => 'An agent already reading a chat is alerted about the message in front of them.',
+    ],
+    [
+        'what'  => 'a mailbox has a chats entry point',
+        'file'  => 'routes/web.php',
+        'needs' => ["'conversations.chats'"],
+        'cost'  => 'An alert for several chats at once opens a single chat instead of the list.',
+    ],
 ];
 
 $pass = 0; $fail = 0;

@@ -35,6 +35,9 @@ Baseline: FreeScout `1.8.239`.
 | `RealtimeChat`, its `chats_html` payload and audio cue | `app/Events/RealtimeChat.php` | No live list, no sound. Chat becomes email with extra steps. |
 | `channel.name` filter | `app/Conversation.php` | Cosmetic: the channel shows as an empty label. |
 | The `open` middleware group | `app/Http/Kernel.php` | Not used yet. F2B needs it, or the widget's endpoints would demand a CSRF token a customer cannot have. |
+| `showFloatingAlert()` appending a plain `.alert-floating` to the body, and `getGlobalAttr()` | `public/js/main.js` | The in-page alert for a new chat message disappears, or appears but no longer opens the chat on click. |
+| `data-conversation_id` on the conversation page's body | `resources/views/conversations/view.blade.php` | An agent already reading a chat is alerted about the message in front of them. |
+| The `conversations.chats` route | `routes/web.php` | An alert for several chats at once opens one chat instead of the list. The endpoint checks for the route, so the badge survives. |
 
 ## Two behaviours that are contracts even though nothing enforces them
 

@@ -29,13 +29,17 @@
             unavailable: 'Remote Support unavailable.',
             expired: 'Your session expired — reload the page and try again.',
             failed: 'Request failed (HTTP {status}).',
-            copied: 'copied'
+            copied: 'copied',
+            techNote: 'The links work for {minutes} minutes, and only on the machine that uses them first. That machine can then reach our server for {hours} hours.',
+            techNoFirewall: 'This server does not manage the firewall: the links only download the client.'
         },
         ro: {
             unavailable: 'Asistența la distanță nu este disponibilă.',
             expired: 'Sesiunea a expirat — reîncărcați pagina și încercați din nou.',
             failed: 'Cererea a eșuat (HTTP {status}).',
-            copied: 'copiat'
+            copied: 'copiat',
+            techNote: 'Linkurile sunt valabile {minutes} minute și funcționează doar pe calculatorul care le folosește primul. Acel calculator poate accesa apoi serverul nostru {hours} ore.',
+            techNoFirewall: 'Acest server nu administrează firewall-ul: linkurile doar descarcă clientul.'
         }
     };
     var T = WORDS[String(document.documentElement.lang || 'en').slice(0, 2).toLowerCase()] || WORDS.en;
@@ -219,6 +223,66 @@
         }
 
         navigator.clipboard.writeText(link).then(function () {
+            var original = button.text();
+            button.text(T.copied);
+            setTimeout(function () {
+                button.text(original);
+            }, 1200);
+        }, function () {});
+    });
+
+    // The agent's own client. Each click asks for a fresh link: they last
+    // minutes and belong to the first machine that uses them, so a link shown
+    // earlier may already be spent.
+    $(document).on('click', '.gesoft-rs-tech-get', function () {
+        var p = panel(),
+            msg = p.find('.gesoft-rs-msg'),
+            button = $(this);
+
+        button.prop('disabled', true);
+        msg.removeClass('text-danger').text('…');
+
+        $.ajax({
+            url: p.data('url-technician'),
+            type: 'POST',
+            dataType: 'json',
+            data: { _token: csrfToken() }
+        }).done(function (r) {
+            button.prop('disabled', false);
+            if (!r || r.status !== 'success') {
+                msg.addClass('text-danger').text((r && r.msg) || T.unavailable);
+                return;
+            }
+            msg.removeClass('text-danger').text('');
+
+            var box = p.find('.gesoft-rs-tech-links');
+            box.find('.gesoft-rs-tech-windows').attr('href', r.windows_url);
+            box.find('.gesoft-rs-tech-open').attr('href', r.open_url);
+            box.find('.gesoft-rs-tech-linux').text(r.linux_command || '');
+            box.find('.gesoft-rs-tech-linux-row').toggle(!!r.linux_command);
+            box.find('.gesoft-rs-tech-note').text(
+                r.admits
+                    ? T.techNote.replace('{minutes}', r.link_minutes).replace('{hours}', r.grant_hours)
+                    : T.techNoFirewall
+            );
+            box.show();
+        }).fail(function (xhr) {
+            button.prop('disabled', false);
+            msg.addClass('text-danger').text(
+                xhr.status === 419 ? T.expired : T.failed.replace('{status}', xhr.status)
+            );
+        });
+    });
+
+    $(document).on('click', '.gesoft-rs-tech-copy', function () {
+        var command = panel().find('.gesoft-rs-tech-linux').text(),
+            button = $(this);
+
+        if (!command || !navigator.clipboard) {
+            return;
+        }
+
+        navigator.clipboard.writeText(command).then(function () {
             var original = button.text();
             button.text(T.copied);
             setTimeout(function () {

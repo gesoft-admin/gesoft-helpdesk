@@ -11,3 +11,9 @@
 .gesoft-rs-copy { padding: 0 4px; vertical-align: baseline; }
 .gesoft-rs-hint { margin-top: 8px; line-height: 1.5; }
 .gesoft-rs-msg.text-danger { color: #a94442; }
+.gesoft-rs-tech { margin-top: 8px; border-top: 1px solid #eef1f3; padding-top: 6px; }
+.gesoft-rs-tech-get { padding-left: 0; }
+.gesoft-rs-tech-links > div { padding: 3px 0; line-height: 1.5; }
+.gesoft-rs-tech-linux { display: block; margin: 3px 0 0; padding: 4px 6px; font-size: 11px; white-space: pre-wrap; word-break: break-all; }
+.gesoft-rs-tech-copy { padding: 0 4px; vertical-align: baseline; }
+.gesoft-rs-tech-note { margin-top: 4px; line-height: 1.5; }

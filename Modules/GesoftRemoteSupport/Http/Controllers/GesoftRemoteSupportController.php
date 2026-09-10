@@ -242,6 +242,58 @@ class GesoftRemoteSupportController extends Controller
         return $this->success($session);
     }
 
+    /**
+     * A one-time link for the agent's own RustDesk client, and the ways to use
+     * it: a Windows download, a Linux command, and access alone.
+     *
+     * The agent's RustDesk has to be pointed at our server, and our server's
+     * firewall has to let the agent's machine in. It opens the RustDesk ports
+     * per address, and until this only ever for customers, so an agent could
+     * reach a customer only when both shared a public address. Using the link
+     * does both, for the machine that uses it — which is the machine that runs
+     * RustDesk, where the browser's address could be another one entirely.
+     *
+     * Offered from a conversation because that is where the agent is when they
+     * need it. The link itself is not tied to the conversation or a session.
+     */
+    public function technician(Request $request, $conversation_id)
+    {
+        $this->authorized($conversation_id);
+        $user = auth()->user();
+
+        $client = new HelpdeskClient();
+        if (!$client->isConfigured()) {
+            return response()->json(['status' => 'error', 'msg' => __('Remote Support is not configured on this server.')]);
+        }
+
+        // The same public base the customer link is built from: the agent's
+        // machine reaches the backend the way a customer's does.
+        $base = (string) config('gesoftremotesupport.customer_base');
+        if ($base === '') {
+            $base = (string) config('gesoftremotesupport.api_base');
+        }
+        $base = rtrim($base, '/');
+
+        try {
+            $link = $client->createTechnicianLink('FreeScout user '.$user->id.' ('.$user->getFullName().')');
+        } catch (HelpdeskException $e) {
+            return response()->json(['status' => 'error', 'msg' => $e->userMessage()]);
+        }
+
+        \Log::info(self::LOG_PREFIX.': agent '.$user->id.' was issued a technician link');
+
+        return response()->json([
+            'status'        => 'success',
+            'msg'           => '',
+            'windows_url'   => $base.$link['windows'],
+            'linux_command' => !empty($link['linux_available']) ? 'curl -fsSL '.$base.$link['linux_script'].' | sh' : '',
+            'open_url'      => $base.$link['open'],
+            'link_minutes'  => (int) ($link['link_minutes'] ?? 0),
+            'grant_hours'   => round(((int) ($link['grant_minutes'] ?? 0)) / 60, 1),
+            'admits'        => !empty($link['admits']),
+        ]);
+    }
+
     // ------------------------------------------------------------- internals
 
     /**

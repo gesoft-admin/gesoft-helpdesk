@@ -149,6 +149,39 @@ class HelpdeskClient
         return $this->request('POST', '/api/ops/'.((int) $id).'/close');
     }
 
+    /**
+     * A one-time link for the agent's own RustDesk client.
+     *
+     *   POST /api/ops/technician-links {"label": …}
+     *     -> {token, expires_at, windows, linux_script, open,
+     *         linux_available, link_minutes, grant_minutes, admits}
+     *
+     * The paths come back relative; the caller puts the public base in front.
+     * `$label` names the agent in the backend's audit trail.
+     */
+    public function createTechnicianLink($label)
+    {
+        $reply = $this->request('POST', '/api/ops/technician-links', ['label' => (string) $label]);
+
+        if (empty($reply['token']) || !is_string($reply['token']) || !preg_match('/^[0-9a-f]{64}$/', $reply['token'])) {
+            throw new HelpdeskException(
+                HelpdeskException::KIND_BAD_RESPONSE,
+                'technician link returned no token'
+            );
+        }
+
+        foreach (['windows', 'linux_script', 'open'] as $path) {
+            if (empty($reply[$path]) || !is_string($reply[$path]) || strpos($reply[$path], '/t/') !== 0) {
+                throw new HelpdeskException(
+                    HelpdeskException::KIND_BAD_RESPONSE,
+                    'technician link returned no '.$path.' path'
+                );
+            }
+        }
+
+        return $reply;
+    }
+
     // ------------------------------------------------------------------ http
 
     protected function request($method, $path, array $json = null)

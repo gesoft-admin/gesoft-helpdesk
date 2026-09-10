@@ -27,4 +27,11 @@ Route::group([
         'uses'    => 'GesoftRemoteSupportController@status',
         'laroute' => true,
     ])->name('gesoftremotesupport.status');
+
+    // A one-time link for the agent's own RustDesk client. POST: every call
+    // mints a link in the backend, which is a change, not a read.
+    Route::post('/gesoft-remote-support/{conversation_id}/technician', [
+        'uses'    => 'GesoftRemoteSupportController@technician',
+        'laroute' => true,
+    ])->name('gesoftremotesupport.technician');
 });

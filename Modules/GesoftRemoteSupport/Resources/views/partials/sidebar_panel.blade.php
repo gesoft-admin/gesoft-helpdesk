@@ -13,7 +13,8 @@
      data-conversation-id="{{ $conversation->id }}"
      data-url-start="{{ route('gesoftremotesupport.start', ['conversation_id' => $conversation->id]) }}"
      data-url-close="{{ route('gesoftremotesupport.close', ['conversation_id' => $conversation->id]) }}"
-     data-url-status="{{ route('gesoftremotesupport.status', ['conversation_id' => $conversation->id]) }}">
+     data-url-status="{{ route('gesoftremotesupport.status', ['conversation_id' => $conversation->id]) }}"
+     data-url-technician="{{ route('gesoftremotesupport.technician', ['conversation_id' => $conversation->id]) }}">
 
     <div class="sidebar-block-header2">
         <strong>{{ __('Gesoft Remote Support') }}</strong>
@@ -89,6 +90,25 @@
             <button type="button" class="btn btn-default btn-sm gesoft-rs-close" @if (!$session->isActive()) disabled @endif>
                 {{ __('Close Session') }}
             </button>
+        </div>
+
+        {{--
+            The agent's own RustDesk client. It has to be pointed at our server,
+            and our firewall has to let the agent's machine in; a link used from
+            that machine does both. The links are filled in by module.js from
+            the technician route, and expire in minutes.
+        --}}
+        <div class="gesoft-rs-tech">
+            <button type="button" class="btn btn-link btn-xs gesoft-rs-tech-get">{{ __('My RustDesk client') }}</button>
+            <div class="gesoft-rs-tech-links" style="display:none">
+                <div><span class="gesoft-rs-key">Windows</span> <a href="#" class="gesoft-rs-tech-windows">{{ __('Download (.exe)') }}</a></div>
+                <div class="gesoft-rs-tech-linux-row">
+                    <span class="gesoft-rs-key">Linux</span> <button type="button" class="btn btn-link btn-xs gesoft-rs-tech-copy">{{ __('Copy command') }}</button>
+                    <code class="gesoft-rs-tech-linux"></code>
+                </div>
+                <div><span class="gesoft-rs-key">{{ __('Access only') }}</span> <a href="#" class="gesoft-rs-tech-open" target="_blank" rel="noopener noreferrer">{{ __('Open from this machine') }}</a></div>
+                <div class="text-help gesoft-rs-tech-note"></div>
+            </div>
         </div>
 
         <div class="gesoft-rs-msg text-help"></div>

@@ -88,12 +88,22 @@ return [
     'rate_per_minute' => env('GESOFT_LIVE_CHAT_RATE_PER_MINUTE', 240),
 
     /**
-     * Messages a minute one chat may send. Zero switches it off.
+     * How fast one chat's visitor may send: at most `send_burst` messages
+     * within `send_burst_seconds`, and at most `send_limit` within a minute.
+     * Zero switches either off. Agents are not limited.
+     *
+     * Two windows, because either alone fails: twenty a minute on its own let
+     * twenty messages through in as many seconds, and a burst limit on its own
+     * lets a steady stream through. Live Helper Chat limits only the length of
+     * a message. A refused message is given back to the visitor with how long
+     * to wait.
      *
      * Per chat rather than per address, so a visitor pasting a burst is slowed
      * down and the colleague behind the same address is not.
      */
-    'send_limit' => env('GESOFT_LIVE_CHAT_SEND_LIMIT', 20),
+    'send_limit'         => env('GESOFT_LIVE_CHAT_SEND_LIMIT', 20),
+    'send_burst'         => env('GESOFT_LIVE_CHAT_SEND_BURST', 5),
+    'send_burst_seconds' => env('GESOFT_LIVE_CHAT_SEND_BURST_SECONDS', 10),
 
     /**
      * How often a visitor's poll is written down as "still here", in seconds.

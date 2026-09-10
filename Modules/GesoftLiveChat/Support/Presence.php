@@ -82,6 +82,52 @@ final class Presence
             && ($now - $first_customer_at) >= $wait_after;
     }
 
+    /**
+     * How long a visitor must wait before sending another message, in
+     * seconds; zero if they may send now.
+     *
+     * `$windows` is a list of `[seconds, max]`: at most `max` messages within
+     * any `seconds`. Two are used, a burst and a minute, because either alone
+     * fails — twenty a minute let twenty messages through in as many seconds,
+     * and a burst limit alone lets a steady stream through. A `max` of zero
+     * switches its window off.
+     *
+     * `$sent_at` are the timestamps of the messages already sent.
+     */
+    public static function sendWait(array $sent_at, $now, array $windows)
+    {
+        $wait = 0;
+
+        foreach ($windows as $window) {
+            list($seconds, $max) = $window;
+            if ($max <= 0 || $seconds <= 0) {
+                continue;
+            }
+
+            $inside = array_values(array_filter($sent_at, function ($at) use ($now, $seconds) {
+                return $at > $now - $seconds;
+            }));
+            if (count($inside) < $max) {
+                continue;
+            }
+
+            // Sending becomes possible when enough of these have left the
+            // window that fewer than `max` remain.
+            sort($inside);
+            $wait = max($wait, $inside[count($inside) - $max] + $seconds - $now);
+        }
+
+        return (int) $wait;
+    }
+
+    /** The timestamps a window of `$seconds` can still see. */
+    public static function keepRecent(array $sent_at, $now, $seconds)
+    {
+        return array_values(array_filter($sent_at, function ($at) use ($now, $seconds) {
+            return is_int($at) && $at > $now - $seconds;
+        }));
+    }
+
     /** 256 bits, hex. The raw value only ever exists in the visitor's tab. */
     public static function newToken()
     {

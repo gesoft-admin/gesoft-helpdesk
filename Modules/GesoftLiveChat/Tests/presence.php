@@ -79,5 +79,15 @@ check('typing again after the last message does', Presence::showTyping($now - 1,
 check('no sign, no dots', Presence::showTyping(null, null, $now), false);
 check('a sign stamped in the future does not', Presence::showTyping($now + 5, null, $now), false);
 
+// How fast a visitor may send: a burst of five in ten seconds, twenty a minute.
+$w = [[10, 5], [60, 20]];
+check('the first message goes', Presence::sendWait([], $now, $w), 0);
+check('five in a few seconds go', Presence::sendWait([$now - 4, $now - 3, $now - 2, $now - 1], $now, $w), 0);
+check('the sixth waits until the first leaves the burst', Presence::sendWait([$now - 4, $now - 3, $now - 2, $now - 1, $now], $now, $w), 6);
+check('a steady message every 3 s stops at twenty a minute', Presence::sendWait(range($now - 57, $now, 3), $now, $w), 3);
+check('messages older than both windows do not count', Presence::sendWait(range($now - 200, $now - 61, 3), $now, $w), 0);
+check('windows switched off stop nothing', Presence::sendWait(array_fill(0, 30, $now), $now, [[10, 0], [60, 0]]), 0);
+check('only what a window can still see is kept', Presence::keepRecent([$now - 61, $now - 60, $now - 59, $now], $now, 60), [$now - 59, $now]);
+
 printf("\n%d passed, %d failed\n", $pass, $fail);
 exit($fail ? 1 : 0);

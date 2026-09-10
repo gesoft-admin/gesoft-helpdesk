@@ -218,6 +218,35 @@ if (agent) {
   check('  and no longer once they clear the box', await agentHears(false), true);
 }
 
+// ----------------------------------------------- a visitor sending too fast
+// Reported on 2026-09-10: nothing stopped a visitor sending as fast as they
+// could. Five in a row go through, the sixth is refused and given back.
+const sendReady = `!${R}.querySelector('.form .send').disabled`;
+const sendInBubble = (text) => a.ev(`(() => {
+  const t = ${R}.querySelector('.form textarea');
+  t.value = ${JSON.stringify(text)};
+  ${R}.querySelector('.form').dispatchEvent(new Event('submit', { cancelable: true }));
+  return true;
+})()`);
+const visitorLines = () => Number(one(`select count(*) from threads where conversation_id=${convA} and type=1`));
+const linesBefore = visitorLines();
+await sleep(11000);  // the burst window is ten seconds; start it empty
+for (let i = 1; i <= 6; i++) {
+  await waitFor(a.ev, sendReady, 3000);
+  await sendInBubble(`Rafala ${i} ${RUN}`);
+  await sleep(400);
+  await waitFor(a.ev, sendReady, 1500);
+}
+await sleep(800);
+check('five messages in a row are sent, the sixth is not', visitorLines() - linesBefore, 5);
+check('  the visitor is told to slow down', await a.ev(`${R}.querySelector('.log').innerText.includes('Trimiteți mesaje prea des')`), true);
+check('  the refused message does not stay in the conversation looking sent',
+  await a.ev(`![...${R}.querySelectorAll('.log .row.visitor')].some(r => r.innerText.includes('Rafala 6 ${RUN}'))`), true);
+check('  its text is given back in the box', await a.ev(`${R}.querySelector('.form textarea').value`), `Rafala 6 ${RUN}`);
+check('  and Send is paused', await a.ev(`${R}.querySelector('.form .send').disabled`), true);
+check('  until the visitor may send again', await waitFor(a.ev, sendReady, 12000), true);
+await a.ev(`${R}.querySelector('.form textarea').value = ''; true`);
+
 // --------------------------------------------------- a reload keeps the chat
 await a.go();
 check('after a reload the tab still has the same token', (await token(a)) === tokenA, true);

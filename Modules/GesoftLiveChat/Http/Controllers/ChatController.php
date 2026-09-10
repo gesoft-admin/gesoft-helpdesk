@@ -257,8 +257,8 @@ class ChatController extends Controller
             return $this->fail($request, __('This conversation is no longer open.', [], $lang), 404, 'closed', ['closed' => true]);
         }
 
-        if ($this->tooFast($session)) {
-            return $this->fail($request, __('You are sending messages too quickly. Please wait a few seconds.', [], $lang), 429, 'too_fast');
+        if ($wait = $this->sendWait($session)) {
+            return $this->fail($request, __('You are sending messages too quickly. Please wait a few seconds.', [], $lang), 429, 'too_fast', ['retry_after' => $wait]);
         }
 
         $conversation = $session->conversation;
@@ -540,29 +540,35 @@ class ChatController extends Controller
     }
 
     /**
-     * A ceiling on messages per chat, so one tab cannot bury an agent.
+     * How long this chat must wait before sending another message, or zero —
+     * in which case the message about to be stored is counted.
      *
      * Per session rather than per address. The route throttle is per address
      * and has to be loose enough for an office full of visitors; this is what
-     * stops any one of them sending a message a second.
+     * stops any one of them burying an agent. The rule is
+     * `Presence::sendWait()`; this only keeps the timestamps, in the cache.
+     * Agents are not limited.
      */
-    protected function tooFast(ChatSession $session)
+    protected function sendWait(ChatSession $session)
     {
-        $max = (int) config('gesoftlivechat.send_limit');
-        if ($max <= 0) {
-            return false;
+        $windows = [
+            [(int) config('gesoftlivechat.send_burst_seconds'), (int) config('gesoftlivechat.send_burst')],
+            [60, (int) config('gesoftlivechat.send_limit')],
+        ];
+
+        $key = 'gesoftlivechat:sent:'.$session->id;
+        $now = time();
+        $sent = Presence::keepRecent((array) \Cache::get($key, []), $now, 60);
+
+        $wait = Presence::sendWait($sent, $now, $windows);
+        if ($wait > 0) {
+            return $wait;
         }
 
-        $limiter = app(RateLimiter::class);
-        $key = 'gesoftlivechat:send:'.$session->id;
+        $sent[] = $now;
+        \Cache::put($key, $sent, now()->addSeconds(70));
 
-        if ($limiter->tooManyAttempts($key, $max, 1)) {
-            return true;
-        }
-
-        $limiter->hit($key, 1);
-
-        return false;
+        return 0;
     }
 
     /**

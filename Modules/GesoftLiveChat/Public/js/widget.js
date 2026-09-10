@@ -477,6 +477,8 @@
             badge.textContent = String(unread);
             badge.hidden = false;
         }
+
+        return row;
     }
 
     function note(text, action, onAction) {
@@ -755,6 +757,10 @@
     form.addEventListener('submit', function (e) {
         e.preventDefault();
 
+        // A message is on its way, or the visitor was asked to slow down.
+        // What they typed stays in the box.
+        if (sendBtn.disabled) { return; }
+
         var text = input.value.trim();
         if (!text) { return; }
 
@@ -773,7 +779,17 @@
         grow();
         sendBtn.disabled = true;
         if (!token) { fresh(); }
-        add('visitor', text, null, null);
+        var row = add('visitor', text, null, null);
+
+        // Not sent after all: take it back out of the conversation, where it
+        // would look delivered, and give the visitor their words back.
+        function takeBack() {
+            if (row && row.parentNode) { row.parentNode.removeChild(row); }
+            if (!input.value) {
+                input.value = text;
+                grow();
+            }
+        }
 
         var path = token ? 'send' : 'start';
         var payload = { token: token, message: text };
@@ -791,6 +807,7 @@
                 sendBtn.disabled = false;
 
                 if (!res || res.status !== 'success') {
+                    if (row && row.parentNode) { row.parentNode.removeChild(row); }
                     note(explain(res));
 
                     // The conversation ended between the last poll and this
@@ -802,6 +819,16 @@
                             intro.querySelector('[name=message]').value = text;
                             show('intro');
                         }
+                        return;
+                    }
+
+                    takeBack();
+
+                    // Too fast: Send stays off for as long as the server said.
+                    if (res && res.code === 'too_fast') {
+                        sendBtn.disabled = true;
+                        setTimeout(function () { sendBtn.disabled = false; },
+                            Math.max(1, parseInt(res.retry_after, 10) || 5) * 1000);
                     }
                     return;
                 }
@@ -813,6 +840,7 @@
             })
             .catch(function () {
                 sendBtn.disabled = false;
+                takeBack();
                 note(T.errNetwork);
             });
     });

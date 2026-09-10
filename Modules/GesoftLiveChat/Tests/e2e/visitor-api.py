@@ -40,7 +40,8 @@ BASE = os.environ["GLC_BASE"].rstrip("/")
 SQL = os.environ["GLC_SQL"]
 ARTISAN = os.environ["GLC_ARTISAN"]
 START_LIMIT = int(os.environ.get("GLC_START_LIMIT", "20"))
-SEND_LIMIT = int(os.environ.get("GLC_SEND_LIMIT", "20"))
+SEND_BURST = int(os.environ.get("GLC_SEND_BURST", "5"))
+SEND_BURST_SECONDS = int(os.environ.get("GLC_SEND_BURST_SECONDS", "10"))
 RUN = secrets.token_hex(3)
 
 passed = 0
@@ -327,14 +328,22 @@ check("  and the visitor can still write", send(tr, f"după multe interogări {R
 check("  and end the chat", http("POST", "end", {"token": tr})[0], 200)
 check("  and the end is recorded", lines(cr, 100), "1")
 
-# What one chat may send.
+# What one chat may send: a burst, then a pause. Reported on 2026-09-10: with
+# only twenty a minute, a visitor sending as fast as they could was never
+# stopped.
 _, _, ts, cs = start(f"E2E rafala {RUN}", f"e2e-s-{RUN}@gesoft.test", f"Rafala {RUN}")
-sent = [send(ts, f"rafala {RUN} {i}") for i in range(SEND_LIMIT + 1)]
-check(f"{SEND_LIMIT} messages a minute from one chat are taken, the next is refused",
-      [c for c, _ in sent], [200] * SEND_LIMIT + [429])
+sent = [send(ts, f"rafala {RUN} n{i}") for i in range(SEND_BURST + 1)]
+check(f"{SEND_BURST} messages in a row are taken, the next is refused",
+      [c for c, _ in sent], [200] * SEND_BURST + [429])
 check("  with a code the bubble can explain", sent[-1][1].get("code"), "too_fast")
-check("  and a message saying so in the visitor's language", sent[-1][1].get("msg"), "Trimiteți mesaje prea des. Așteptați câteva secunde.")
+wait = sent[-1][1].get("retry_after")
+check("  and how long to wait", isinstance(wait, int) and 1 <= wait <= SEND_BURST_SECONDS, True)
+check("  in the visitor's language", sent[-1][1].get("msg"), "Trimiteți mesaje prea des. Așteptați câteva secunde.")
+check("  and the refused message is not stored",
+      one(f"select count(*) from threads where conversation_id={cs} and body like 'rafala {RUN} n{SEND_BURST}%'"), "0")
 check("  while another chat from the same address can still write", send(tx, f"alt chat {RUN}")[0], 200)
+time.sleep((wait if isinstance(wait, int) else SEND_BURST_SECONDS) + 1)
+check("  and once the pause is over the visitor can write again", send(ts, f"după pauză {RUN}")[0], 200)
 artisan("cache:clear")
 
 # ------------------------------------------------------------ the agent's side

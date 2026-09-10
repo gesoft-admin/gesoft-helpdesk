@@ -246,6 +246,30 @@ $contract = [
         'cost'  => 'Without a reload, an "Email sent — Undo" message waits in the session and appears on the next page the agent opens.',
     ],
     [
+        'what'  => 'a module can veto an auto-reply',
+        'file'  => 'app/Listeners/SendAutoReply.php',
+        'needs' => ["Eventy::filter('autoreply.should_send', true, \$conversation)"],
+        'cost'  => 'With auto-replies on, the message form becomes a way to make the helpdesk email any address a stranger types.',
+    ],
+    [
+        'what'  => 'a new conversation can be marked before core announces it',
+        'file'  => 'app/Thread.php',
+        'needs' => ["Eventy::filter('conversation.created_by_customer', \$conversation, \$thread, \$customer)", 'event(new CustomerCreatedConversation($conversation, $thread));'],
+        'cost'  => 'Message form conversations are no longer recognised as the form\'s, and get auto-replies again.',
+    ],
+    [
+        'what'  => 'a module\'s new conversation goes through createExtended and carries meta',
+        'file'  => 'app/Conversation.php',
+        'needs' => ['Thread::createExtended($thread, $conversation, $customer, false)', 'public function setMeta($key, $value, $save = false)', 'public function getMeta($key, $default = null)'],
+        'cost'  => 'The message form\'s mark is not stored, or core stops announcing conversations the module creates.',
+    ],
+    [
+        'what'  => 'a module can drop a notification per subscriber',
+        'file'  => 'app/Subscription.php',
+        'needs' => ["Eventy::filter('subscription.filter_out', false, \$subscription, \$thread)"],
+        'cost'  => 'Agents are emailed about every line of every chat again: thirty emails from eight chats on the test instance.',
+    ],
+    [
         'what'  => 'a web message can become an email conversation',
         'file'  => 'app/Conversation.php',
         'needs' => ['const TYPE_EMAIL', 'const SOURCE_TYPE_WEB'],

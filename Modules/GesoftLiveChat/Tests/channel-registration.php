@@ -95,7 +95,17 @@ namespace {
         public function runningInConsole() { return $this->console; }
     }
 
+    // A conversation with a channel and meta, for where it came from.
+    class ConversationMetaStub {
+        public $channel; public $meta = [];
+        public function __construct($channel = null) { $this->channel = $channel; }
+        public function isChat() { return $this->channel == 100; }
+        public function getMeta($key, $default = null) { return $this->meta[$key] ?? $default; }
+        public function setMeta($key, $value, $save = false) { $this->meta[$key] = $value; }
+    }
+
     require __DIR__.'/../Support/Presence.php';
+    require __DIR__.'/../Support/Origin.php';
     require __DIR__.'/../Providers/GesoftLiveChatServiceProvider.php';
 
     $pass = 0; $fail = 0;
@@ -217,6 +227,28 @@ namespace {
     check('an agent reply in a chat keeps its bell entry',
         $sending(new \App\Notifications\WebsiteNotification($chat, $from_agent)), null);
     check('other notifications are not touched', $sending(new \stdClass()), null);
+
+    // Nothing that came in through the bubble gets an auto-reply: the address
+    // on it was typed by whoever filled in the form.
+    boot();
+    $Origin = '\Modules\GesoftLiveChat\Support\Origin';
+    check('no auto-reply to a chat', \Eventy::filter('autoreply.should_send', true, new ConversationMetaStub(100)), false);
+    check('an ordinary email conversation keeps its auto-reply', \Eventy::filter('autoreply.should_send', true, new ConversationMetaStub(null)), true);
+    $Origin::$offlineForm = true;
+    $form_conversation = \Eventy::filter('conversation.created_by_customer', new ConversationMetaStub(null), null, null);
+    $Origin::$offlineForm = false;
+    check('the message form marks its conversation as core creates it', $form_conversation->getMeta('gesoftlivechat'), 'offline_form');
+    check('  and that conversation gets no auto-reply', \Eventy::filter('autoreply.should_send', true, $form_conversation), false);
+    check('any other new conversation is left unmarked',
+        \Eventy::filter('conversation.created_by_customer', new ConversationMetaStub(null), null, null)->getMeta('gesoftlivechat'), null);
+
+    // Emails about chat lines. Only a visitor's chat message is this module's
+    // business; anything else, and anything core already filtered out, is not.
+    check('the email filter is registered', isset(Eventy::$stub->filters['subscription.filter_out']), true);
+    check('  and leaves a message that is not a visitor\'s to core',
+        \Eventy::filter('subscription.filter_out', false, (object) ['user_id' => 1], (object) ['type' => \App\Thread::TYPE_MESSAGE]), false);
+    check('  and never lets through what core filtered out',
+        \Eventy::filter('subscription.filter_out', true, (object) ['user_id' => 1], (object) ['type' => \App\Thread::TYPE_CUSTOMER]), true);
 
     // The lines written into a chat when a visitor ends it, leaves, comes back,
     // or is blocked: what they say, and whose name they carry. Core only names

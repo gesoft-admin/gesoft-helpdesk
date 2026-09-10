@@ -134,6 +134,11 @@
     var BASE = attr('data-base') || '';
     var TITLE = attr('data-title') || T.title;
 
+    // data-display="page": the chat fills the window and is open from the
+    // start, with no launcher and nothing to close — for the /chat page, which
+    // is linked to rather than embedded.
+    var PAGE = attr('data-display') === 'page';
+
     // Identity the host page already knows. An application where the customer
     // is signed in should hand it over rather than make them introduce
     // themselves a second time; a plain website leaves this empty and the
@@ -302,6 +307,10 @@
         '.form .send { width: 40px; height: 40px; border-radius: 12px; border: 0; background: var(--brand); color: var(--brand-ink); cursor: pointer; display: grid; place-items: center; flex: none; }',
         '.form .send svg { width: 18px; height: 18px; }',
         '.form .send[disabled] { opacity: .5; cursor: default; }',
+        '.wrap.page .launcher, .wrap.page .x { display: none !important; }',
+        '.wrap.page .panel { display: flex; top: 0; left: 0; right: 0; bottom: 0; margin: auto; width: 760px; max-width: 100vw; height: 860px; max-height: 100%; }',
+        '@media (max-height: 860px) { .wrap.page .panel { height: 100%; border-radius: 0; border-top: 0; border-bottom: 0; } }',
+        '@media (max-width: 760px) { .wrap.page .panel { width: 100vw; height: 100%; border-radius: 0; border: 0; } }',
         '[hidden] { display: none !important; }',
         '@media (prefers-reduced-motion: reduce) { .launcher { transition: none; } }',
         '</style>',
@@ -719,6 +728,7 @@
     }
 
     function close() {
+        if (PAGE) { return; }
         panel.classList.remove('open');
         launcher.setAttribute('aria-expanded', 'false');
         launcher.setAttribute('aria-label', T.openChat);
@@ -992,10 +1002,14 @@
     });
 
     words();
+    if (PAGE) { $('.wrap').classList.add('page'); }
     document.body.appendChild(host);
 
     // A reload in the same tab picks the conversation back up without clicking.
-    if (token) {
+    if (PAGE) {
+        endBtn.hidden = !token;
+        open();
+    } else if (token) {
         endBtn.hidden = false;
         show('chat');
         poll();

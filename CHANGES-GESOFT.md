@@ -84,6 +84,22 @@ On an agent's chat page, the three-second typing beat also names the
 visitor's newest message, and the page shows it without waiting for core's
 five-second realtime poll.
 
+The chat also has a page of its own, `/chat`, for a link rather than an
+embed: the same bubble, open from the start and filling the window, so a site
+needs no bubble and the helpdesk no second hostname.
+
+Nothing that comes in through the bubble gets an auto-reply. The email address
+on a chat or a message form was typed by whoever filled it in, so an
+auto-reply would let a stranger make the helpdesk email any address. A chat is
+recognised by its channel; a message form conversation is marked in its meta
+while core creates it, before the event that decides on an auto-reply.
+
+Agents are not emailed about every line of a chat. FreeScout emails an agent
+about each customer message in a conversation assigned to them, which on the
+test instance was thirty emails from eight chats. An agent who has FreeScout
+open gets none, because the in-page alert tells them. One who is away gets one
+email when the visitor starts waiting.
+
 Starting a conversation is limited per address, 20 in ten minutes, because
 an address is often a whole office. What a single chat may send is limited
 separately.

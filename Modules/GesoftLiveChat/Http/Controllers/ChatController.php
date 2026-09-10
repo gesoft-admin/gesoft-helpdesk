@@ -12,6 +12,7 @@ use Illuminate\Routing\Controller;
 use Modules\GesoftLiveChat\Entities\AgentPresence;
 use Modules\GesoftLiveChat\Entities\ChatBlock;
 use Modules\GesoftLiveChat\Entities\ChatSession;
+use Modules\GesoftLiveChat\Support\Origin;
 use Modules\GesoftLiveChat\Support\Presence;
 use Modules\GesoftLiveChat\Support\Typing;
 
@@ -209,6 +210,9 @@ class ChatController extends Controller
 
         $customer = $this->customer($email, $request, $lang);
 
+        // Marks the conversation as the form's before core announces it, so no
+        // auto-reply goes to an address a stranger typed. See Support/Origin.
+        Origin::$offlineForm = true;
         $result = Conversation::create(
             [
                 'type'        => Conversation::TYPE_EMAIL,
@@ -225,6 +229,7 @@ class ChatController extends Controller
             ]],
             $customer
         );
+        Origin::$offlineForm = false;
 
         if (!$result) {
             return $this->fail($request, __('Chat is not available right now.', [], $lang), 503, 'unavailable');
@@ -407,6 +412,23 @@ class ChatController extends Controller
         }
 
         return $this->cors($request, response('', 204));
+    }
+
+    /**
+     * The chat as a page of its own, for a link: the bubble, open and filling
+     * the window, with the same endpoints behind it. `?lang=en` for English.
+     */
+    public function page(Request $request)
+    {
+        $lang = Presence::lang($request->query('lang'), (string) config('gesoftlivechat.visitor_lang', 'ro'));
+        $script = __DIR__.'/../../Public/js/widget.js';
+
+        return response()->view('gesoftlivechat::page', [
+            'lang'    => $lang,
+            'title'   => (string) config('gesoftlivechat.page_title'),
+            // A new bubble reaches a visitor who has the page cached.
+            'version' => is_file($script) ? filemtime($script) : 1,
+        ]);
     }
 
     /**

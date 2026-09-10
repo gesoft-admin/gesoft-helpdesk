@@ -89,5 +89,10 @@ check('messages older than both windows do not count', Presence::sendWait(range(
 check('windows switched off stop nothing', Presence::sendWait(array_fill(0, 30, $now), $now, [[10, 0], [60, 0]]), 0);
 check('only what a window can still see is kept', Presence::keepRecent([$now - 61, $now - 60, $now - 59, $now], $now, 60), [$now - 59, $now]);
 
+// Emails to agents about chat messages.
+check('an agent who is away is emailed when the visitor starts waiting', Presence::emailAgentAbout(false, false), true);
+check('  but not again for the lines before an answer', Presence::emailAgentAbout(false, true), false);
+check('an agent with FreeScout open is not emailed', Presence::emailAgentAbout(true, false), false);
+
 printf("\n%d passed, %d failed\n", $pass, $fail);
 exit($fail ? 1 : 0);

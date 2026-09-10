@@ -61,6 +61,19 @@ Route::group([
 });
 
 /**
+ * The chat as a page of its own, for a link such as helpdesk.example.com/chat:
+ * the same bubble, open and filling the window, on the same public footing as
+ * the endpoints above.
+ */
+Route::group([
+    'middleware' => ['open', 'throttle:'.((int) config('gesoftlivechat.rate_per_minute') ?: 600).',1'],
+    'prefix'     => \Helper::getSubdirectory(),
+    'namespace'  => 'Modules\GesoftLiveChat\Http\Controllers',
+], function () {
+    Route::get('/chat', 'ChatController@page')->name('gesoftlivechat.page');
+});
+
+/**
  * The agent's side. Session and permissions as usual, and no overlap with the
  * visitor routes above: nothing a customer can reach touches this group.
  */

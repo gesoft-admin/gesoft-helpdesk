@@ -202,6 +202,12 @@ return [
     'visitor_lang' => env('GESOFT_LIVE_CHAT_VISITOR_LANG', 'ro'),
 
     /**
+     * The title of the chat page, `/chat`, and of the chat window on it.
+     * Empty uses the bubble's own, "Asistență" or "Support".
+     */
+    'page_title' => env('GESOFT_LIVE_CHAT_PAGE_TITLE', ''),
+
+    /**
      * Whether a visitor must give an email address before the first message.
      *
      * On worth having: an address is what connects this conversation to the

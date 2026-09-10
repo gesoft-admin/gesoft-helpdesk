@@ -128,6 +128,21 @@ final class Presence
         }));
     }
 
+    /**
+     * Whether an agent should be emailed about a visitor's chat message.
+     *
+     * FreeScout emails an agent about every customer message in a
+     * conversation assigned to them, and a chat is a conversation of many
+     * short messages: thirty emails came from eight chats on the test
+     * instance. An agent who has FreeScout open is told by the in-page alert;
+     * one who is away gets one email when the visitor starts waiting, not one
+     * per line.
+     */
+    public static function emailAgentAbout($agent_present, $visitor_already_waiting)
+    {
+        return !$agent_present && !$visitor_already_waiting;
+    }
+
     /** 256 bits, hex. The raw value only ever exists in the visitor's tab. */
     public static function newToken()
     {

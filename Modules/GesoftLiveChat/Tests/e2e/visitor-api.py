@@ -173,6 +173,12 @@ check("send with the token works", code, 200)
 check("a 32-character token of the old design opens nothing", poll(secrets.token_hex(16)).get("closed"), True)
 check("a random 64-character token opens nothing", poll(secrets.token_hex(32)).get("closed"), True)
 
+# ------------------------------------------------------------------ the chat page
+with urllib.request.urlopen(urllib.request.Request(BASE + "/chat", headers={"User-Agent": "Mozilla/5.0 (gesoft-live-chat-e2e)"}), timeout=20) as page_resp:
+    page_status, page_html = page_resp.status, page_resp.read().decode()
+check("the chat page answers at /chat", page_status, 200)
+check("  with the bubble in page mode", 'data-display="page"' in page_html and "js/widget.js" in page_html, True)
+
 # --------------------------------------------------------------- refusals say why
 artisan("cache:clear")
 r = http("POST", "start", {"name": "x", "email": f"e2e-empty-{RUN}@gesoft.test", "message": "  ", "lang": "en"})
@@ -463,6 +469,65 @@ if os.environ.get("GLC_AGENT_EMAIL"):
         sql(f"delete from gesoft_live_chat_blocks where value like 'e2e-%{RUN}%' "
             f"or conversation_id in (select id from conversations where subject like '%{RUN}%')")
         artisan("cache:clear")
+
+    # ------------------------------------------- what the helpdesk emails, and to whom
+    # Notifications and auto-replies leave through the queue, notifications
+    # after core's fifteen-second undo delay, so this waits for them.
+    agent_id = one(f"select id from users where email='{os.environ['GLC_AGENT_EMAIL']}'")
+
+    def mails(mail_type, thread_ids):
+        ids = ",".join(i for i in thread_ids if i)
+        return one(f"select count(*) from send_logs where mail_type={mail_type} and thread_id in ({ids})") if ids else "0"
+
+    def thread_of(text):
+        return one(f"select id from threads where body like '{text}%' order by id desc limit 1")
+
+    auto_reply_was = one("select auto_reply_enabled from mailboxes order by id limit 1")
+    sql("update mailboxes set auto_reply_enabled=1 order by id limit 1")
+    try:
+        # No auto-reply to anything from the bubble: the address on it was
+        # typed by a stranger. Auto-replies are on for this part of the run.
+        artisan("cache:clear")
+        http("POST", "offline", {"name": "Releu", "email": f"e2e-relay-{RUN}@gesoft.test", "message": f"Releu formular {RUN}", "lang": "ro"})
+        form_thread = thread_of(f"Releu formular {RUN}")
+        form_conv = one(f"select conversation_id from threads where id={form_thread}")
+        if form_conv:
+            opened.append(form_conv)
+        check("a message form conversation is marked as the form's",
+              "offline_form" in (one(f"select meta from conversations where id={form_conv}") or ""), True)
+        _, _, trc, crc = start(f"E2E releu chat {RUN}", f"e2e-relay-chat-{RUN}@gesoft.test", f"Releu chat {RUN}")
+        chat_first_thread = thread_of(f"Releu chat {RUN}")
+
+        # FreeScout emails an agent about every visitor message in a chat
+        # assigned to them. Now: none while they have FreeScout open, one per
+        # wait while they do not.
+        _, _, tn, cn = start(f"E2E notificari {RUN}", f"e2e-notif-{RUN}@gesoft.test", f"Notificari {RUN}")
+        sql(f"update conversations set user_id={agent_id} where id={cn}")
+        agent_post(f"/gesoft-live-chat/agent/{cn}/nudge", {})
+        time.sleep(1.2)
+        agents_present()
+        send(tn, f"cu agent prezent {RUN}")
+        present_thread = thread_of(f"cu agent prezent {RUN}")
+        agent_post(f"/gesoft-live-chat/agent/{cn}/nudge", {})
+        time.sleep(1.2)
+        away_threads = []
+        for i in range(3):
+            agents_away()
+            send(tn, f"cu agent plecat {RUN} n{i}")
+            away_threads.append(thread_of(f"cu agent plecat {RUN} n{i}"))
+        agents_present()
+
+        deadline = time.time() + 90
+        while time.time() < deadline and mails(2, away_threads[:1]) == "0":
+            time.sleep(3)
+        time.sleep(10)
+        check("no email about a chat line while the agent has FreeScout open", mails(2, [present_thread]), "0")
+        check("one email when the visitor starts waiting and the agent is away", mails(2, away_threads[:1]), "1")
+        check("  and none for the lines after it", mails(2, away_threads[1:]), "0")
+        check("no auto-reply to a message form conversation, with auto-replies on", mails(3, [form_thread]), "0")
+        check("  nor to a chat", mails(3, [chat_first_thread]), "0")
+    finally:
+        sql(f"update mailboxes set auto_reply_enabled={auto_reply_was} order by id limit 1")
 
 # -------------------------------------------------------------------- tidy up
 agents_present()

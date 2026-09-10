@@ -78,7 +78,7 @@ async function waitFor(ev, expr, ms = 10000) {
   return false;
 }
 
-async function tab(query = '') {
+async function tab(query = '', page = DEMO) {
   const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
   const S = (m, p) => send(m, p, sessionId);
@@ -90,7 +90,7 @@ async function tab(query = '') {
     return r.result.value;
   };
   const go = async () => {
-    await S('Page.navigate', { url: DEMO + query });
+    await S('Page.navigate', { url: page + query });
     await sleep(300);
     await waitFor(ev, `!!document.querySelector('[data-gesoft-live-chat]')`, 15000);
   };
@@ -283,6 +283,19 @@ const en = await tab('?lang=en');
 await openBubble(en, 'intro');
 check('?lang=en gives an English bubble', await en.ev(`${R}.querySelector('.t-intro-title').textContent`), 'Start a conversation');
 await en.close();
+
+// ------------------------------------------------------------- the chat page
+// helpdesk…/chat: the same bubble, open from the start and filling the window.
+const pg = await tab('', BASE + '/chat');
+check('the chat page opens the chat by itself', await waitFor(pg.ev, `${R}.querySelector('.panel').classList.contains('open')`, 8000), true);
+check('  with no launcher and nothing to close',
+  await pg.ev(`getComputedStyle(${R}.querySelector('.launcher')).display === 'none' && getComputedStyle(${R}.querySelector('.x')).display === 'none'`), true);
+check('  and asks who the visitor is', await waitFor(pg.ev, `${R}.querySelector('.panel').getAttribute('data-mode') === 'intro'`, 8000), true);
+check('  in a window that fits the screen',
+  await pg.ev(`(() => { const r = ${R}.querySelector('.panel').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight + 1 && r.width > 300; })()`), true);
+await pg.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); ${R}.querySelector('.panel').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true })); true`);
+check('  and Escape does not close it', await pg.ev(`${R}.querySelector('.panel').classList.contains('open')`), true);
+await pg.close();
 
 // ------------------------------------------------- closing a tab says goodbye
 const c = await tab();

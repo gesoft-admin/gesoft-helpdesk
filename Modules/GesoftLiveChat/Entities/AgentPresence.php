@@ -41,6 +41,14 @@ class AgentPresence extends Model
         self::updateOrCreate(['user_id' => $user_id], ['last_seen_at' => now()]);
     }
 
+    /** Whether this agent has had FreeScout open within `operator_timeout`. */
+    public static function isPresent($user_id)
+    {
+        return self::where('user_id', $user_id)
+            ->where('last_seen_at', '>=', now()->subSeconds(max(30, (int) config('gesoftlivechat.operator_timeout'))))
+            ->exists();
+    }
+
     /**
      * Whether anybody who can answer chats in this mailbox is around.
      *

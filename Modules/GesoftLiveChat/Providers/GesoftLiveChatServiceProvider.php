@@ -3,6 +3,7 @@
 namespace Modules\GesoftLiveChat\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Modules\GesoftLiveChat\Support\Origin;
 use Modules\GesoftLiveChat\Support\Presence;
 
 if (!defined('GESOFT_LIVE_CHAT_MODULE')) {
@@ -256,6 +257,36 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
             }
         });
 
+        // Mark a message form conversation as the form's while core creates
+        // it. This filter runs inside Thread::createExtended() before the save
+        // and before the event that decides on an auto-reply; nothing else
+        // tells the form's email conversations from any other.
+        \Eventy::addFilter('conversation.created_by_customer', function ($conversation, $thread = null, $customer = null) {
+            if (Origin::$offlineForm && $conversation && method_exists($conversation, 'setMeta')) {
+                $conversation->setMeta(Origin::META_KEY, Origin::OFFLINE_FORM);
+            }
+
+            return $conversation;
+        }, 20, 3);
+
+        // No auto-reply to anything that came in through the bubble. The
+        // address was typed by whoever filled in the form, so an auto-reply
+        // would be the helpdesk emailing any address a stranger chooses — the
+        // relay that Live Helper Chat's "send me the transcript" is. Off on
+        // production's mailbox today; this keeps it so if auto-replies are
+        // switched on.
+        \Eventy::addFilter('autoreply.should_send', function ($send, $conversation = null) use ($channel) {
+            return Origin::isFromWidget($conversation, $channel) ? false : $send;
+        }, 20, 2);
+
+        // One email per wait, and none while the agent is at their desk.
+        // FreeScout emails an agent about every customer message in a
+        // conversation assigned to them; on the test instance that was thirty
+        // emails from eight chats.
+        \Eventy::addFilter('subscription.filter_out', function ($filter_out, $subscription = null, $thread = null) {
+            return $filter_out ? true : self::isChatLineNotWorthAnEmail($subscription, $thread);
+        }, 20, 3);
+
         // What the lines this module writes into a chat say: the visitor ended
         // it, left, came back, or was blocked. Core words its own line items
         // and leaves any other action type blank.
@@ -307,6 +338,44 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
     {
         return self::lineText($thread) !== null
             && in_array((int) $thread->action_type, [Presence::ACTION_ENDED, Presence::ACTION_LEFT, Presence::ACTION_RETURNED], true);
+    }
+
+    /**
+     * A visitor's chat message the subscriber should not be notified about:
+     * they have FreeScout open, or the visitor already had an unanswered
+     * message before this one. Anything that is not a visitor's chat message
+     * is left to core.
+     *
+     * The bell and the browser push for these are cancelled anyway (see
+     * isChatMessageForTheBell), so in practice this decides the email.
+     */
+    public static function isChatLineNotWorthAnEmail($subscription, $thread)
+    {
+        if (!$subscription || !$thread || (int) ($thread->type ?? 0) !== \App\Thread::TYPE_CUSTOMER) {
+            return false;
+        }
+
+        $conversation = $thread->conversation ?? null;
+        if (!$conversation || !$conversation->isChat()) {
+            return false;
+        }
+
+        $last_answer = (int) \App\Thread::where('conversation_id', $conversation->id)
+            ->where('type', \App\Thread::TYPE_MESSAGE)
+            ->where('state', \App\Thread::STATE_PUBLISHED)
+            ->max('id');
+
+        $already_waiting = \App\Thread::where('conversation_id', $conversation->id)
+            ->where('type', \App\Thread::TYPE_CUSTOMER)
+            ->where('state', \App\Thread::STATE_PUBLISHED)
+            ->where('id', '>', $last_answer)
+            ->where('id', '<', $thread->id)
+            ->exists();
+
+        return !Presence::emailAgentAbout(
+            \Modules\GesoftLiveChat\Entities\AgentPresence::isPresent($subscription->user_id),
+            $already_waiting
+        );
     }
 
     /**

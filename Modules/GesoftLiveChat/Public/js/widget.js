@@ -141,7 +141,13 @@
     var IDENTITY = (window.GesoftLiveChat && window.GesoftLiveChat.identity) || {};
     var ASK = attr('data-prechat') !== 'off' && !(IDENTITY.email || IDENTITY.name);
     var STORE = 'gesoft-live-chat-token';
-    var POLL_MS = 3000;
+    // How often the bubble asks for news: often while the conversation is
+    // alive and on screen, rarely when it is quiet or the tab is hidden. See
+    // nextDelay().
+    var FAST_MS = 1500;
+    var QUIET_MS = 5000;
+    var HIDDEN_MS = 30000;
+    var ACTIVE_FOR_MS = 120000;
     // How long after the last keystroke the visitor still counts as typing.
     var TYPING_MS = 4000;
 
@@ -169,6 +175,10 @@
     var unread = 0;
     var typedAt = 0;
     var lastPollAt = 0;
+    var lastActivity = 0;
+    var polling = false;
+    var inFlight = false;
+    var timerDue = 0;
 
     // ---------------------------------------------------------------- markup
 
@@ -577,9 +587,31 @@
             .catch(function () { online = true; paintStatus(); return online; });
     }
 
-    function poll() {
-        if (!token) { return; }
+    // Something happened in the conversation: poll often for a while.
+    function active() {
+        lastActivity = Date.now();
+    }
 
+    // Every second and a half while the conversation is alive — a message or
+    // somebody typing in the last two minutes — and the visitor can see it;
+    // every five seconds when it has gone quiet; every thirty while the tab
+    // is hidden, which still keeps the visitor counted as present. Each poll
+    // costs the server about ten milliseconds of processor time, so asking
+    // often only while it matters keeps the cost close to what a fixed
+    // three-second poll spent. Live Helper Chat asks every three and a half
+    // seconds whatever is happening.
+    function nextDelay() {
+        var delay = document.hidden ? HIDDEN_MS
+            : Date.now() - lastActivity < ACTIVE_FOR_MS ? FAST_MS : QUIET_MS;
+
+        // A little jitter, so tabs opened together do not ask together.
+        return Math.round(delay * (0.9 + Math.random() * 0.2));
+    }
+
+    function poll() {
+        if (!token || inFlight) { return; }
+
+        inFlight = true;
         lastPollAt = Date.now();
         fetch(BASE + '/gesoft-live-chat/poll?token=' + encodeURIComponent(token) + '&since=' + since + '&lang=' + LANG
             + '&typing=' + (visitorTyping() ? 1 : 0))
@@ -593,6 +625,7 @@
                     if (seen[m.id]) { return; }
                     seen[m.id] = true;
                     add(m.from, m.body, m.author, m.at);
+                    active();
                 });
 
                 if (typeof res.since === 'number') { since = res.since; }
@@ -612,6 +645,7 @@
                 // The server stops naming the agent once their message is
                 // in, so the dots give way to the message in the same answer.
                 paintTyping(res.typing);
+                if (res.typing) { active(); }
 
                 if (res.closed) {
                     stopPolling();
@@ -619,15 +653,41 @@
                     forget();
                 }
             })
-            .catch(function () { /* a dropped poll is not worth telling anyone */ });
+            .catch(function () { /* a dropped poll is not worth telling anyone */ })
+            .then(function () {
+                inFlight = false;
+                schedule();
+            });
     }
 
+    // The next poll, counted from when the last one answered, so there is
+    // never more than one on its way.
+    function schedule() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (!polling || !token || inFlight) { return; }
+
+        var delay = nextDelay();
+        timerDue = Date.now() + delay;
+        timer = setTimeout(poll, delay);
+    }
+
+    // Starts the loop, or brings the next poll forward to the active pace.
     function startPolling() {
-        if (!timer) { timer = setInterval(poll, POLL_MS); }
+        polling = true;
+        if (!timer || timerDue - Date.now() > FAST_MS) { schedule(); }
     }
 
     function stopPolling() {
-        if (timer) { clearInterval(timer); timer = null; }
+        polling = false;
+        if (timer) { clearTimeout(timer); timer = null; }
+    }
+
+    // Now rather than at the next turn: the visitor started typing, or came
+    // back to the tab.
+    function pollNow() {
+        if (!polling || !token || inFlight) { return; }
+        if (timer) { clearTimeout(timer); timer = null; }
+        poll();
     }
 
     // ---------------------------------------------------------------- events
@@ -710,6 +770,7 @@
             fresh();
             show('chat');
             add('visitor', text, null, null);
+            active();
             startPolling();
         }).catch(function () {
             button.disabled = false;
@@ -836,6 +897,8 @@
                 if (res.token) { remember(res.token); }
                 if (typeof res.since === 'number' && res.since > since) { since = res.since; }
 
+                // An answer is likely soon.
+                active();
                 startPolling();
             })
             .catch(function () {
@@ -852,18 +915,16 @@
 
     input.addEventListener('input', grow);
 
-    // Typing travels with the next poll. The first keystroke after a pause
-    // polls at once and starts the timer over, so the agent hears it within a
-    // moment — unless a poll has just gone out, because the route throttle
-    // counts every request and the poll already uses most of it.
+    // Typing travels with the next poll, and keeps the conversation at the
+    // active pace. The first keystroke after a pause polls at once, so the
+    // agent hears it within a moment — unless a poll has only just gone out.
     input.addEventListener('input', function () {
         var was = visitorTyping();
         typedAt = input.value.trim() !== '' ? Date.now() : 0;
+        if (typedAt) { active(); }
 
-        if (!was && visitorTyping() && timer && Date.now() - lastPollAt >= 2500) {
-            stopPolling();
-            poll();
-            startPolling();
+        if (!was && visitorTyping() && Date.now() - lastPollAt >= 1000) {
+            pollNow();
         }
     });
     input.addEventListener('keydown', function (e) {
@@ -907,6 +968,12 @@
                 }
             });
     }
+
+    // Back to the tab: catch up at once rather than at the end of a hidden
+    // tab's thirty-second wait.
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) { pollNow(); }
+    });
 
     // The tab is going away. A reload sends this too, a moment before polling
     // again, which is why the server treats it as "maybe gone" until the

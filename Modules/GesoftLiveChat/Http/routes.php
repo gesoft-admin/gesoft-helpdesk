@@ -24,7 +24,7 @@
 // colleague in the same office — had messages and "End" refused without a
 // word. What a single chat may send is limited in the controller instead.
 Route::group([
-    'middleware' => ['open', 'throttle:'.((int) config('gesoftlivechat.rate_per_minute') ?: 240).',1'],
+    'middleware' => ['open', 'throttle:'.((int) config('gesoftlivechat.rate_per_minute') ?: 600).',1'],
     'prefix'     => \Helper::getSubdirectory().'/gesoft-live-chat',
     'namespace'  => 'Modules\GesoftLiveChat\Http\Controllers',
 ], function () {

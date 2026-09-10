@@ -165,7 +165,7 @@ class AgentController extends Controller
         $this->authorize('viewCached', $conversation);
 
         if (!$conversation->isChat() || !Typing::enabled()) {
-            return response()->json(['status' => 'success', 'visitor_typing' => false]);
+            return response()->json(['status' => 'success', 'visitor_typing' => false, 'latest_customer_thread_id' => 0]);
         }
 
         $user = auth()->user();
@@ -178,6 +178,13 @@ class AgentController extends Controller
         return response()->json([
             'status'         => 'success',
             'visitor_typing' => Typing::isVisitorTyping($conversation),
+            // The visitor's newest message, so the page can show it within
+            // one beat instead of waiting for core's five-second realtime
+            // poll. The page fetches it itself if it is not on screen.
+            'latest_customer_thread_id' => (int) $conversation->threads()
+                ->where('type', Thread::TYPE_CUSTOMER)
+                ->where('state', Thread::STATE_PUBLISHED)
+                ->max('id'),
         ]);
     }
 

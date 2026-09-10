@@ -440,6 +440,14 @@
                 var box = $('.gesoft-chat-typing').first(), on = !!(res && res.visitor_typing);
                 box.find('.gesoft-typing-text').text(on ? T.typing : '');
                 box.prop('hidden', !on);
+
+                // The visitor said something this page does not show yet.
+                // Core's realtime poll would bring it within five seconds;
+                // this beat already runs every three, so use it.
+                var latest = parseInt(res && res.latest_customer_thread_id, 10);
+                if (latest && !document.getElementById('thread-' + latest)) {
+                    refreshConversation();
+                }
             })
             .always(function () { typingBusy = false; });
     }
@@ -459,6 +467,12 @@
 
         typingBeat(id);
         setInterval(function () { typingBeat(id); }, TYPING_MS);
+
+        // A hidden page skips its beats. Coming back, catch up at once rather
+        // than at the next one.
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden) { typingBeat(id); }
+        });
     }
 
     // A reply in a chat stays on the page.
@@ -534,8 +548,13 @@
     // The reply as the server now shows it, and the status and assignee it
     // left behind — a reply makes a chat pending and the agent's — from the
     // conversation page, fetched in the background.
+    var refreshing = false;
+
     function refreshConversation() {
-        $.get(window.location.href).done(function (html) {
+        if (refreshing) { return; }
+        refreshing = true;
+
+        $.get(window.location.href).always(function () { refreshing = false; }).done(function (html) {
             var page = $('<div>').append($.parseHTML(String(html)));
             var main = $('#conv-layout-main');
 

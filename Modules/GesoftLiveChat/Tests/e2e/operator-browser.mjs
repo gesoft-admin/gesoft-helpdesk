@@ -281,6 +281,14 @@ check('  and appears above the first', await waitFor(`(() => {
 check('  still without a reload', await ev(`window.__gesoftStay || null`), 'still here');
 check('the status shown is the one the server set',
   await waitFor(`convGetStatus() === ${Number(one(`select status from conversations where id=${here.conv}`))}`, 5000), true);
+// The other direction: a visitor's message reaches the agent's chat page
+// within the three-second beat, not only on core's five-second realtime poll.
+await say(here, `Vizitatorul revine ${RUN}`);
+const t0 = Date.now();
+const arrived = await waitFor(onScreen(`Vizitatorul revine ${RUN}`), 6000);
+check("a visitor's message appears on the agent's chat page within 4 s", arrived && Date.now() - t0 <= 4500, true);
+check('  still without a reload', await ev(`window.__gesoftStay || null`), 'still here');
+
 const visitorSees = (await pollOnce(here)).messages.map((m) => m.body);
 check('the visitor receives both replies',
   visitorSees.includes(`Primul răspuns ${RUN}`) && visitorSees.includes(`Al doilea răspuns ${RUN}`), true);

@@ -80,12 +80,14 @@ return [
      * Requests a minute to the visitor endpoints from one address, all of them
      * together: polls, messages, "End", the status check.
      *
-     * A ceiling against floods, not a budget for one visitor. A chat polls
-     * twenty times a minute, so this is roughly how many chats one address
-     * can hold at once, times twelve — an office behind one address is several
-     * visitors. The old value of 30 refused a second tab.
+     * A ceiling against floods, not a budget for one visitor. A chat in
+     * active conversation polls every second and a half, forty times a
+     * minute, and much less when it is quiet or its tab is hidden; 600 leaves
+     * an office behind one address room for fifteen lively chats at once and
+     * still caps one address at ten requests a second. The old value of 30
+     * refused a second tab.
      */
-    'rate_per_minute' => env('GESOFT_LIVE_CHAT_RATE_PER_MINUTE', 240),
+    'rate_per_minute' => env('GESOFT_LIVE_CHAT_RATE_PER_MINUTE', 600),
 
     /**
      * How fast one chat's visitor may send: at most `send_burst` messages

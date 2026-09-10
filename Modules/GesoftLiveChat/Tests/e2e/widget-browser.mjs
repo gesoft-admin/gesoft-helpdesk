@@ -247,6 +247,22 @@ check('  and Send is paused', await a.ev(`${R}.querySelector('.form .send').disa
 check('  until the visitor may send again', await waitFor(a.ev, sendReady, 12000), true);
 await a.ev(`${R}.querySelector('.form textarea').value = ''; true`);
 
+// ---------------------------------------- polling follows the conversation
+// While a chat is active and on screen the bubble asks every second and a
+// half, one request at a time; measured from the requests the page made.
+const pollStarts = `performance.getEntriesByType('resource').filter(e => e.name.includes('/gesoft-live-chat/poll')).map(e => e.startTime).sort((x, y) => x - y)`;
+await a.ev(`performance.setResourceTimingBufferSize(2000); performance.clearResourceTimings(); true`);
+await sleep(8000);
+const gaps = await a.ev(`(() => { const t = ${pollStarts}; return t.slice(1).map((v, i) => Math.round(v - t[i])); })()`);
+console.log('        gaps between polls (ms): ' + JSON.stringify(gaps));
+const median = [...gaps].sort((x, y) => x - y)[Math.floor(gaps.length / 2)] || 0;
+check('an active chat polls about every 1.5 s', median >= 1200 && median <= 2000, true);
+check('  one request at a time', gaps.length > 0 && gaps.every((g) => g >= 900), true);
+const pollsBefore = (await a.ev(pollStarts)).length;
+await a.ev(`document.dispatchEvent(new Event('visibilitychange')); true`);
+await sleep(500);
+check('coming back to the tab polls at once', (await a.ev(pollStarts)).length > pollsBefore, true);
+
 // --------------------------------------------------- a reload keeps the chat
 await a.go();
 check('after a reload the tab still has the same token', (await token(a)) === tokenA, true);

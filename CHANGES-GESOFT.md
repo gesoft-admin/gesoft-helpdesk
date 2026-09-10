@@ -72,6 +72,18 @@ and replaces only the reload. The message is added to the conversation, the
 status and assignee are brought up to date, and the editor stays open and
 empty. If that fails, core's reload runs.
 
+The bubble polls at the pace of the conversation: every second and a half
+while something happened in the last two minutes and the tab is visible,
+every five seconds when it is quiet, every thirty while the tab is hidden,
+and at once when the visitor starts typing or comes back to the tab. A poll
+costs the server about ten milliseconds of processor time, so polling fast
+only while it matters costs about what a fixed three-second poll did. Push
+over a persistent connection was considered and left for when volume needs
+it: long polling would hold one of the few PHP workers per waiting visitor.
+On an agent's chat page, the three-second typing beat also names the
+visitor's newest message, and the page shows it without waiting for core's
+five-second realtime poll.
+
 Starting a conversation is limited per address, 20 in ten minutes, because
 an address is often a whole office. What a single chat may send is limited
 separately.

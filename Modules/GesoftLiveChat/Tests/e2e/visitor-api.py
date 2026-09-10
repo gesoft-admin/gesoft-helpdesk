@@ -410,7 +410,11 @@ if os.environ.get("GLC_AGENT_EMAIL"):
     check("  and no longer once they clear the box", typing(ct, False)[1].get("visitor_typing"), False)
     poll(tt, typing=1)
     send(tt, f"Am scris {RUN}")
-    check("  nor once their message is in", typing(ct, False)[1].get("visitor_typing"), False)
+    beat = typing(ct, False)[1]
+    check("  nor once their message is in", beat.get("visitor_typing"), False)
+    check("the agent's beat names the visitor's newest message",
+          beat.get("latest_customer_thread_id"),
+          int(one(f"select max(id) from threads where conversation_id={ct} and type=1 and state=2")))
     typing(ct, True)
     check("an agent typing is told to the visitor, by first name", poll(tt).get("typing"), {"name": agent_first})
     typing(ct, False)

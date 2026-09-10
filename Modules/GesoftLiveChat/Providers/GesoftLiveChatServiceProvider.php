@@ -214,6 +214,44 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
 
             return $schedule;
         });
+
+        // One announcement per chat message, not two. `operator.js` already
+        // raises an alert that opens the chat; core would also file every
+        // customer line under the bell, where a chat of twenty lines becomes
+        // twenty entries to clear. Laravel asks before sending any
+        // notification, and a listener that answers false cancels it.
+        //
+        // Only the bell and its realtime copy. Email to agents is a separate
+        // job and is left as it is: it is how an agent who is not signed in
+        // finds out at all.
+        \Event::listen(\Illuminate\Notifications\Events\NotificationSending::class, function ($event) {
+            if (self::isChatMessageForTheBell($event->notification ?? null)) {
+                return false;
+            }
+        });
+    }
+
+    /**
+     * A bell notification for something a customer wrote in a chat.
+     *
+     * Agent replies, notes and assignments in a chat still reach the bell: the
+     * in-page alert does not announce those, so cancelling them would leave
+     * them announced nowhere.
+     */
+    public static function isChatMessageForTheBell($notification)
+    {
+        if (!($notification instanceof \App\Notifications\WebsiteNotification)
+            && !($notification instanceof \App\Notifications\BroadcastNotification)
+        ) {
+            return false;
+        }
+
+        $conversation = $notification->conversation ?? null;
+        $thread = $notification->thread ?? null;
+
+        return $conversation && $thread
+            && $conversation->isChat()
+            && (int) $thread->type === \App\Thread::TYPE_CUSTOMER;
     }
 
     /**

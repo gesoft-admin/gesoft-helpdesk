@@ -113,6 +113,24 @@ $contract = [
         'needs' => ["'conversations.chats'"],
         'cost'  => 'An alert for several chats at once opens a single chat instead of the list.',
     ],
+    [
+        'what'  => 'a notification can be cancelled before it is sent',
+        'file'  => 'overrides/laravel/framework/src/Illuminate/Notifications/NotificationSender.php',
+        'needs' => ['Events\NotificationSending', ') !== false'],
+        'cost'  => 'Every customer chat message goes back to filing an entry under the bell as well as raising the alert.',
+    ],
+    [
+        'what'  => 'bell notifications carry their conversation and thread',
+        'file'  => 'app/Notifications/WebsiteNotification.php',
+        'needs' => ['class WebsiteNotification', 'public $conversation', 'public $thread'],
+        'cost'  => 'The guard cannot tell a chat message from anything else, so it cancels nothing.',
+    ],
+    [
+        'what'  => 'realtime bell notifications carry their conversation and thread',
+        'file'  => 'app/Notifications/BroadcastNotification.php',
+        'needs' => ['class BroadcastNotification', 'public $conversation', 'public $thread'],
+        'cost'  => 'Chat messages reappear in the open bell menu and play core\'s sound on top of the module\'s.',
+    ],
 ];
 
 $pass = 0; $fail = 0;

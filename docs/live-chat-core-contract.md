@@ -38,6 +38,8 @@ Baseline: FreeScout `1.8.239`.
 | `showFloatingAlert()` appending a plain `.alert-floating` to the body, and `getGlobalAttr()` | `public/js/main.js` | The in-page alert for a new chat message disappears, or appears but no longer opens the chat on click. |
 | `data-conversation_id` on the conversation page's body | `resources/views/conversations/view.blade.php` | An agent already reading a chat is alerted about the message in front of them. |
 | The `conversations.chats` route | `routes/web.php` | An alert for several chats at once opens one chat instead of the list. The endpoint checks for the route, so the badge survives. |
+| `NotificationSending` answered with `false` cancels a notification | `overrides/laravel/framework/src/Illuminate/Notifications/NotificationSender.php` | Every customer chat message is filed under the bell again as well as raising the alert. |
+| `WebsiteNotification` and `BroadcastNotification` exposing `$conversation` and `$thread` | `app/Notifications/` | The guard cannot recognise a chat message, so it cancels nothing; core's chat sound plays on top of the module's. |
 
 ## Two behaviours that are contracts even though nothing enforces them
 

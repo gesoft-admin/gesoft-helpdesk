@@ -25,6 +25,21 @@ namespace Illuminate\Support {
     }
 }
 
+namespace App {
+    class Thread { const TYPE_CUSTOMER = 1; const TYPE_MESSAGE = 2; }
+}
+
+namespace App\Notifications {
+    class WebsiteNotification {
+        public $conversation; public $thread;
+        public function __construct($conversation, $thread) { $this->conversation = $conversation; $this->thread = $thread; }
+    }
+    class BroadcastNotification {
+        public $conversation; public $thread;
+        public function __construct($conversation, $thread) { $this->conversation = $conversation; $this->thread = $thread; }
+    }
+}
+
 namespace {
     $CONFIG = ['gesoftlivechat.channel' => 100, 'gesoftlivechat.dev_tools' => false];
     $REGISTERED_COMMANDS = [];
@@ -53,7 +68,16 @@ namespace {
     class Eventy { public static $stub; public static function __callStatic($m, $a) { return call_user_func_array([self::$stub, $m], $a); } }
     Eventy::$stub = new EventyStub();
 
+    // Laravel's event dispatcher, reduced to what the provider uses.
+    class Event { public static $listeners = []; public static function listen($event, $cb) { self::$listeners[$event][] = $cb; } }
+
     class Log { public static function info($msg, $ctx = []) { global $LOGGED; $LOGGED[] = [$msg, $ctx]; } }
+
+    class ConversationStub {
+        private $chat;
+        public function __construct($chat) { $this->chat = $chat; }
+        public function isChat() { return $this->chat; }
+    }
 
     class AppStub {
         public $console;
@@ -74,6 +98,7 @@ namespace {
         global $LOGGED, $REGISTERED_COMMANDS;
         $LOGGED = []; $REGISTERED_COMMANDS = [];
         Eventy::$stub = new EventyStub();
+        Event::$listeners = [];
         (new \Modules\GesoftLiveChat\Providers\GesoftLiveChatServiceProvider(new AppStub($console)))->boot();
     }
 
@@ -142,6 +167,30 @@ namespace {
         public function runInBackground() { return $this; } };
     \Eventy::filter('schedule', $sched);
     check('sweep added to the schedule', $sched->added, ['gesoftlivechat:sweep-chats']);
+
+    // A customer's chat message is announced by the in-page alert, so the bell
+    // must not file it as well — and nothing else may be cancelled with it.
+    // Laravel treats a listener answer of false as "do not send"; null lets the
+    // notification through.
+    boot();
+    $guards = Event::$listeners['Illuminate\Notifications\Events\NotificationSending'] ?? [];
+    check('a guard is registered before notifications are sent', count($guards), 1);
+    $guard = $guards[0] ?? function () { return 'missing'; };
+    $sending = function ($notification) use ($guard) { return $guard((object) ['notification' => $notification]); };
+
+    $chat = new ConversationStub(true);
+    $email = new ConversationStub(false);
+    $from_customer = (object) ['type' => \App\Thread::TYPE_CUSTOMER];
+    $from_agent = (object) ['type' => \App\Thread::TYPE_MESSAGE];
+
+    check('bell entry for a customer chat message is cancelled',
+        $sending(new \App\Notifications\WebsiteNotification($chat, $from_customer)), false);
+    check('  and its realtime copy', $sending(new \App\Notifications\BroadcastNotification($chat, $from_customer)), false);
+    check('an email conversation keeps its bell entry',
+        $sending(new \App\Notifications\WebsiteNotification($email, $from_customer)), null);
+    check('an agent reply in a chat keeps its bell entry',
+        $sending(new \App\Notifications\WebsiteNotification($chat, $from_agent)), null);
+    check('other notifications are not touched', $sending(new \stdClass()), null);
 
     printf("\n%d passed, %d failed\n", $pass, $fail);
     exit($fail ? 1 : 0);

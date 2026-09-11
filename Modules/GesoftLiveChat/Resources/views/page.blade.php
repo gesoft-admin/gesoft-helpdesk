@@ -13,7 +13,7 @@
     <title>{{ $title !== '' ? $title : ($lang === 'en' ? 'Support' : 'Asistență') }}</title>
     <style>
         :root { color-scheme: light dark; }
-        html, body { margin: 0; height: 100%; background: #e9efee; }
+        html, body { margin: 0; height: 100%; background: {{ $color !== '' ? '#eef1f4' : '#e9efee' }}; }
         noscript p { margin: 0; padding: 3rem 1.25rem; text-align: center; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #16201f; }
         @media (prefers-color-scheme: dark) {
             html, body { background: #0b1112; }
@@ -26,6 +26,7 @@
 <script src="{{ asset('modules/gesoftlivechat/js/widget.js') }}?v={{ $version }}"
         data-display="page"
         data-lang="{{ $lang }}"
-        @if ($title !== '') data-title="{{ $title }}" @endif></script>
+        @if ($title !== '') data-title="{{ $title }}" @endif
+        @if ($color !== '') data-color="{{ $color }}" @endif></script>
 </body>
 </html>

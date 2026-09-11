@@ -15,6 +15,7 @@ namespace {
     $CONFIG = [];
     function config($key, $default = null) { global $CONFIG; return array_key_exists($key, $CONFIG) ? $CONFIG[$key] : $default; }
     function asset($path) { return 'https://helpdesk.test/'.$path; }
+    function public_path($path = '') { return __DIR__.'/fixtures/public/'.$path; }
     function __($s, $r = []) { return $s; }
     function env($k, $d = null) { return $d; }
 
@@ -80,6 +81,25 @@ namespace {
     check('source link can be turned off', strpos($e->apply('footer.text', ''), 'Source code') === false, true);
     $e = boot(['brand_name' => 'A & B <script>']);
     check('brand name is escaped in the footer', $e->apply('footer.text', ''), 'A &amp; B &lt;script&gt;');
+
+    echo "\n--- login banner, theme colour, stylesheet ---\n";
+    $e = boot();
+    check('login banner falls back to the logo', $e->apply('login.banner', '/img/banner.png'), 'brand/default-logo.svg');
+    check('theme colour stays core\'s when unset', $e->apply('layout.theme_color', '#ffffff'), '#ffffff');
+    check('no stylesheet is added when unset', count($e->apply('stylesheets', ['/css/style.css'])), 1);
+    $e = boot(['brand_banner' => '/brand/banner.svg', 'brand_color' => '#1F6FEB', 'brand_stylesheet' => '/brand.css']);
+    check('login banner takes its own file', $e->apply('login.banner', '/img/banner.png'), 'https://helpdesk.test/brand/banner.svg');
+    check('theme colour takes the brand colour', $e->apply('layout.theme_color', '#ffffff'), '#1F6FEB');
+    $styles = $e->apply('stylesheets', ['/css/style.css']);
+    check('the stylesheet comes after core\'s', end($styles), '/brand.css');
+    $e = boot(['brand_stylesheet' => '/brand/missing.css']);
+    check('a stylesheet that is not there is not added', count($e->apply('stylesheets', ['/css/style.css'])), 1);
+    $e = boot(['brand_stylesheet' => 'https://cdn.example.com/brand.css']);
+    check('a remote stylesheet is not added', count($e->apply('stylesheets', ['/css/style.css'])), 1);
+    $e = boot(['brand_stylesheet' => '/brand/../../.env']);
+    check('a path out of public is not added', count($e->apply('stylesheets', ['/css/style.css'])), 1);
+    $e = boot(['brand_color' => 'red; background:url(x)']);
+    check('a colour that is not #rrggbb is ignored', $e->apply('layout.theme_color', '#ffffff'), '#ffffff');
 
     printf("\n%d passed, %d failed\n", $pass, $fail);
     exit($fail ? 1 : 0);

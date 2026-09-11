@@ -1,4 +1,20 @@
 /*
+ * The colours an instance may want as its own, as properties, so a stylesheet
+ * of the instance's (GesoftBranding's HELPDESK_BRAND_STYLESHEET) can set them
+ * without this file changing. The values here are the module's own.
+ */
+:root {
+    --gesoft-chat-accent: #0d5652;
+    --gesoft-chat-accent-pulse: rgba(13, 86, 82, .55);
+    --gesoft-chat-accent-soft: #e3f0ee;
+    --gesoft-chat-mine: #dcefe9;
+    --gesoft-chat-mine-ink: #1d3230;
+    --gesoft-chat-mine-link: #0b5e59;
+    --gesoft-chat-draft-line: #9cc9bd;
+    --gesoft-chat-seen: #1f8f73;
+}
+
+/*
  * The waiting-chat indicator.
  *
  * Deliberately quiet: a count and a weight change, not a flash. An agent has
@@ -11,7 +27,7 @@
     padding: 0 .35em;
     text-align: center;
     border-radius: 9px;
-    background: #0d5652;
+    background: var(--gesoft-chat-accent);
     color: #fff;
     font-size: 11px;
     line-height: 17px;
@@ -28,8 +44,8 @@
 }
 
 @keyframes gesoft-chat-pulse {
-    0%   { box-shadow: 0 0 0 0 rgba(13, 86, 82, .55); }
-    100% { box-shadow: 0 0 0 9px rgba(13, 86, 82, 0); }
+    0%   { box-shadow: 0 0 0 0 var(--gesoft-chat-accent-pulse); }
+    100% { box-shadow: 0 0 0 9px transparent; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -52,7 +68,7 @@
     min-width: 15px;
     padding: 0 3px;
     border-radius: 8px;
-    background: #0d5652;
+    background: var(--gesoft-chat-accent);
     color: #fff;
     font-size: 10px;
     line-height: 15px;
@@ -76,7 +92,7 @@
 }
 
 .chats li.chat-item.new {
-    border-left-color: #0d5652;
+    border-left-color: var(--gesoft-chat-accent);
 }
 
 .chats li.chat-item:not(.new) {
@@ -149,14 +165,14 @@
     gap: 3px;
     padding: 6px 8px;
     border-radius: 10px;
-    background: #e3f0ee;
+    background: var(--gesoft-chat-accent-soft);
 }
 
 .gesoft-typing-dots i {
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background: #0d5652;
+    background: var(--gesoft-chat-accent);
     animation: gesoft-typing 1.2s infinite ease-in-out;
 }
 
@@ -346,12 +362,12 @@
 }
 
 .gesoft-chat-layout ~ .thread-type-message .thread-body {
-    background: #dcefe9;
-    color: #1d3230;
+    background: var(--gesoft-chat-mine);
+    color: var(--gesoft-chat-mine-ink);
 }
 
 .gesoft-chat-layout ~ .thread-type-message .thread-body a {
-    color: #0b5e59;
+    color: var(--gesoft-chat-mine-link);
 }
 
 .gesoft-chat-layout ~ .thread-type-note .thread-body {
@@ -361,7 +377,7 @@
 
 .gesoft-chat-layout ~ .thread-type-draft .thread-body {
     background: #fff;
-    box-shadow: inset 0 0 0 1px #9cc9bd;
+    box-shadow: inset 0 0 0 1px var(--gesoft-chat-draft-line);
 }
 
 /* A run of messages reads as one: the corners on the side they join are
@@ -543,7 +559,7 @@
     padding: 6px 14px;
     border: 0;
     border-radius: 16px;
-    background: #0d5652;
+    background: var(--gesoft-chat-accent);
     color: #fff;
     font-size: 12px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, .2);
@@ -585,5 +601,5 @@
 }
 
 .gesoft-chat-receipt[data-state="seen"] {
-    color: #1f8f73;
+    color: var(--gesoft-chat-seen);
 }

@@ -12,9 +12,10 @@ if (!defined('GESOFT_BRANDING_MODULE')) {
 /**
  * Branding, entirely through published extension points.
  *
- * Four filters in `resources/views/layouts/app.blade.php` decide what a visitor
+ * The filters in `resources/views/layouts/app.blade.php` decide what a visitor
  * sees before anything else does: the name in the title, the favicon, the
- * header logo and the footer. Because there is one layout for both the login
+ * header logo, the theme colour, the stylesheets and the footer, plus the login
+ * page's banner. Because there is one layout for both the login
  * screen and the application, filtering them covers the whole interface — so
  * this module patches no core file, and an upstream merge has nothing of ours
  * to collide with.
@@ -36,6 +37,7 @@ class GesoftBrandingServiceProvider extends ServiceProvider
 
     public function register()
     {
+        $this->loadJsonTranslationsFrom(__DIR__.'/../Resources/lang');
     }
 
     public function hooks()
@@ -51,6 +53,31 @@ class GesoftBrandingServiceProvider extends ServiceProvider
         \Eventy::addFilter('layout.favicon', function ($url) {
             return $this->asset($this->setting('brand_favicon')) ?: $url;
         });
+
+        // The login page has a banner of its own, FreeScout's wordmark, and it
+        // is the first thing anyone sees. Without a banner of its own an
+        // instance shows its logo there instead.
+        \Eventy::addFilter('login.banner', function ($url) {
+            return $this->asset($this->setting('brand_banner') ?: $this->setting('brand_logo')) ?: $url;
+        });
+
+        \Eventy::addFilter('layout.theme_color', function ($color) {
+            $brand = $this->setting('brand_color');
+
+            return preg_match('/^#[0-9a-f]{6}$/i', $brand) ? $brand : $color;
+        });
+
+        // Colours and shapes beyond a logo: one stylesheet of the operator's.
+        // Last of all, at a priority no module uses, so it overrides core and
+        // every module's own stylesheet, which are added at the default 20.
+        \Eventy::addFilter('stylesheets', function ($styles) {
+            $sheet = $this->stylesheet();
+            if ($sheet !== '') {
+                $styles[] = $sheet;
+            }
+
+            return $styles;
+        }, 1000);
 
         // Replacing the footer rather than appending to it, because that is the
         // shape of the hook: core renders its own line only when this filter
@@ -91,6 +118,26 @@ class GesoftBrandingServiceProvider extends ServiceProvider
         }
 
         return asset(ltrim($value, '/'));
+    }
+
+    /**
+     * The operator's stylesheet as core's minifier wants it, or an empty string.
+     *
+     * Only a file under `public/`, because the minifier reads and combines the
+     * files itself, and it has to exist: a stylesheet it cannot read throws, and
+     * the layout catches that by dropping every stylesheet on the page, core's
+     * included. A missing brand file must cost the brand, not the interface.
+     */
+    protected function stylesheet()
+    {
+        $path = $this->setting('brand_stylesheet');
+        if ($path === '' || preg_match('~^(https?:)?//~i', $path) || strpos($path, '..') !== false) {
+            return '';
+        }
+
+        $path = '/'.ltrim($path, '/');
+
+        return is_file(public_path(ltrim($path, '/'))) ? $path : '';
     }
 
     /**

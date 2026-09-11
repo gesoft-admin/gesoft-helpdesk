@@ -11,6 +11,13 @@ environment at them:
     HELPDESK_BRAND_LOGO=/brand/logo.svg
     HELPDESK_BRAND_FAVICON=/brand/favicon.svg
     HELPDESK_BRAND_URL=https://support.example.com
+    HELPDESK_BRAND_BANNER=/brand/banner.svg
+    HELPDESK_BRAND_STYLESHEET=/brand/brand.css
+    HELPDESK_BRAND_COLOR=#1f6feb
+
+The stylesheet loads after core's and every module's. The chat module's
+operator colours are CSS properties (`--gesoft-chat-accent` and the others at
+the top of its `operator.css`) that it can set.
 
 Everything in this directory except the defaults and this file is ignored by
 git, so an operator's marks stay out of the public repository. That is

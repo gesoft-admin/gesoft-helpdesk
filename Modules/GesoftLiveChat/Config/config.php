@@ -250,6 +250,13 @@ return [
     'page_title' => env('GESOFT_LIVE_CHAT_PAGE_TITLE', ''),
 
     /**
+     * The bubble's colour on the chat page, `#rrggbb`. Empty keeps the
+     * bubble's own. A site embedding the bubble sets `data-color` on the
+     * script tag itself.
+     */
+    'color' => env('GESOFT_LIVE_CHAT_COLOR', ''),
+
+    /**
      * Whether a visitor must give an email address before the first message.
      *
      * On worth having: an address is what connects this conversation to the

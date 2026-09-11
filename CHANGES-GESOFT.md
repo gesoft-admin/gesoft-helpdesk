@@ -173,6 +173,11 @@ Romanian and English, and messages written into a chat automatically — the
 remote support link, "are you still there?" — go out in the visitor's
 language.
 
+An instance's colours reach the chat too, without touching the module: the
+operator side reads its accent colours from CSS properties a brand stylesheet
+can set, and the bubble takes `data-color` from its script tag, or
+`GESOFT_LIVE_CHAT_COLOR` on the `/chat` page.
+
 A development-only artisan command and demo page, both off unless
 `GESOFT_LIVE_CHAT_DEV_TOOLS=true`, exist to exercise it on a test instance.
 
@@ -190,7 +195,14 @@ core file: FreeScout already exposes `layout.title.name`, `layout.favicon`,
 behind both the login screen and the application, so filtering those four covers
 the whole interface.
 
-The repository ships neutral placeholder marks only. See [`TRADEMARKS.md`](TRADEMARKS.md).
+It also replaces the login page's banner (the logo, or a banner of its own),
+sets the browser's theme colour, and adds one stylesheet of the instance's after
+every other, so an instance can take on its own colours without a core or module
+file changing. The stylesheet must be a file under `public/`: core combines the
+stylesheets itself, and one it cannot read drops them all.
+
+The repository ships neutral placeholder marks only. An instance's own files go
+in `public/brand/`, which git ignores. See [`TRADEMARKS.md`](TRADEMARKS.md).
 
 ## Core changes
 

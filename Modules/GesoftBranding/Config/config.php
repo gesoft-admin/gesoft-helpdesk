@@ -12,6 +12,9 @@
  *   HELPDESK_BRAND_LOGO=/brand/logo.svg
  *   HELPDESK_BRAND_FAVICON=/brand/favicon.svg
  *   HELPDESK_BRAND_URL=https://support.example.com
+ *   HELPDESK_BRAND_BANNER=/brand/banner.svg
+ *   HELPDESK_BRAND_STYLESHEET=/brand/brand.css
+ *   HELPDESK_BRAND_COLOR=#1f6feb
  *
  * As with every module here, `env()` is called only in this file. Anywhere else
  * it reads as null the moment someone runs `php artisan config:cache`, which is
@@ -31,6 +34,19 @@ return [
      */
     'brand_logo' => env('HELPDESK_BRAND_LOGO', '/brand/default-logo.svg'),
     'brand_favicon' => env('HELPDESK_BRAND_FAVICON', '/brand/default-favicon.svg'),
+
+    /** The login page's banner. Empty uses the logo. */
+    'brand_banner' => env('HELPDESK_BRAND_BANNER', ''),
+
+    /**
+     * A stylesheet of the operator's, loaded after core's: a path under
+     * `public/`, next to the logo. Empty, or a file that is not there, adds
+     * nothing.
+     */
+    'brand_stylesheet' => env('HELPDESK_BRAND_STYLESHEET', ''),
+
+    /** `#rrggbb` for the browser's theme colour. Empty keeps core's. */
+    'brand_color' => env('HELPDESK_BRAND_COLOR', ''),
 
     /** Where the brand name links to. Empty leaves it unlinked. */
     'brand_url' => env('HELPDESK_BRAND_URL', ''),

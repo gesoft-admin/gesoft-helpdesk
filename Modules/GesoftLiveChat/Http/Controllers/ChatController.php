@@ -456,6 +456,7 @@ class ChatController extends Controller
         return response()->view('gesoftlivechat::page', [
             'lang'    => $lang,
             'title'   => (string) config('gesoftlivechat.page_title'),
+            'color'   => preg_match('/^#[0-9a-f]{6}$/i', (string) config('gesoftlivechat.color')) ? (string) config('gesoftlivechat.color') : '',
             // A new bubble reaches a visitor who has the page cached.
             'version' => is_file($script) ? filemtime($script) : 1,
         ]);

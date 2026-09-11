@@ -78,10 +78,24 @@ namespace {
     class Log { public static function info($msg, $ctx = []) { global $LOGGED; $LOGGED[] = [$msg, $ctx]; } }
 
     class ConversationStub {
-        private $chat;
-        public function __construct($chat) { $this->chat = $chat; }
+        private $chat; private $chat_mode; public $id = 5;
+        public function __construct($chat, $chat_mode = false) { $this->chat = $chat; $this->chat_mode = $chat_mode; }
         public function isChat() { return $this->chat; }
+        public function isInChatMode() { return $this->chat && $this->chat_mode; }
     }
+
+    // A rendered view says which one it was, which is all these checks ask.
+    class View {
+        public static function make($name, $data = []) {
+            return new class($name) {
+                private $name;
+                public function __construct($name) { $this->name = $name; }
+                public function render() { return '['.$this->name.']'; }
+            };
+        }
+    }
+
+    class Helper { public static $print = false; public static function isPrint() { return self::$print; } }
 
     class CustomerStub {
         private $name;
@@ -206,6 +220,28 @@ namespace {
     ob_start(); \Eventy::action('conversation.before_threads', new ConversationStub(true)); $rendered = ob_get_clean();
     check('  nor with typing and receipts both switched off', $rendered, '');
     unset($CONFIG['gesoftlivechat.typing'], $CONFIG['gesoftlivechat.receipts']);
+
+    // The mark that puts the newest message at the bottom and the editor under
+    // it: a chat in Chat Mode, and nothing else.
+    $CONFIG['gesoftlivechat.typing'] = true;
+    $CONFIG['gesoftlivechat.newest_at_bottom'] = true;
+    $before_threads = function ($conversation) {
+        ob_start(); \Eventy::action('conversation.before_threads', $conversation); return ob_get_clean();
+    };
+    check('a chat in Chat Mode is marked to read newest at the bottom, ahead of the typing line',
+        $before_threads(new ConversationStub(true, true)), '[gesoftlivechat::partials/layout][gesoftlivechat::partials/typing]');
+    check('  not a chat outside Chat Mode', $before_threads(new ConversationStub(true, false)), '[gesoftlivechat::partials/typing]');
+    check('  not an email conversation', $before_threads(new ConversationStub(false, true)), '');
+    Helper::$print = true;
+    check('  not a printed chat', $before_threads(new ConversationStub(true, true)), '[gesoftlivechat::partials/typing]');
+    Helper::$print = false;
+    $CONFIG['gesoftlivechat.newest_at_bottom'] = false;
+    check("  nor with core's layout chosen", $before_threads(new ConversationStub(true, true)), '[gesoftlivechat::partials/typing]');
+    $CONFIG['gesoftlivechat.typing'] = false;
+    $CONFIG['gesoftlivechat.receipts'] = false;
+    $CONFIG['gesoftlivechat.newest_at_bottom'] = true;
+    check('  and marked even with typing and receipts off', $before_threads(new ConversationStub(true, true)), '[gesoftlivechat::partials/layout]');
+    unset($CONFIG['gesoftlivechat.typing'], $CONFIG['gesoftlivechat.receipts'], $CONFIG['gesoftlivechat.newest_at_bottom']);
 
     check('receipts are added under messages', isset(Eventy::$stub->actions['thread.meta']), true);
     $CONFIG['gesoftlivechat.receipts'] = true;

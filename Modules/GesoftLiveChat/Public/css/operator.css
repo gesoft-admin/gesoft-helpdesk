@@ -173,6 +173,108 @@
 }
 
 /*
+ * A chat in Chat Mode, read like a chat: the oldest message at the top, the
+ * newest at the bottom, and the reply editor under them.
+ *
+ * The messages are turned around on screen only. Core, and this module, go on
+ * putting a new message first in the list, where core's realtime handler puts
+ * it, and the reversed column shows it last. That is why this is CSS keyed on
+ * the server's mark rather than something a script does after the page shows:
+ * the order is right from the first paint, and nothing in core has to change.
+ */
+#conv-layout-main:has(> .gesoft-chat-layout) {
+    display: flex;
+    flex-direction: column-reverse;
+}
+
+/* Nothing below can stay in view while core's `#app { overflow: hidden }`
+   makes #app, which never scrolls, the box they would stay in view of.
+   `clip` cuts off the same overflow without being a scroll box, and
+   `flow-root` keeps the floats contained as `hidden` did. */
+#app:has(.gesoft-chat-layout) {
+    overflow: clip;
+    display: flow-root;
+}
+
+/* Core drops the line under the last message in the list, which is now the
+   oldest, at the top. */
+#conv-layout-main:has(> .gesoft-chat-layout) > .thread:last-child {
+    border-bottom: 1px solid #e3e8eb;
+}
+
+/* "The customer is typing…" is now the last thing above the editor. */
+#conv-layout-main:has(> .gesoft-chat-layout) > .gesoft-chat-typing {
+    margin: 10px 20px;
+}
+
+/* The editor, moved under the messages by operator.js, stays in view while
+   the agent scrolls back through the chat. Clear of the customer sidebar,
+   which is beside it on a wide screen. */
+#conv-layout > .gesoft-chat-composer {
+    clear: both;
+    position: sticky;
+    bottom: 0;
+    z-index: 8;
+    margin-right: 280px;
+    padding-top: 14px;
+    background: #fff;
+    border-top: 1px solid #e3e8eb;
+    box-shadow: 0 -6px 12px -8px rgba(0, 0, 0, .18);
+}
+
+@media (max-width: 1100px) {
+    #conv-layout > .gesoft-chat-composer {
+        margin-right: 0;
+    }
+}
+
+/* The page opens at the newest message, so what an agent needs from the top
+   comes along: the chat list on the left, which core already sizes to the
+   window, and the customer panel with Start Remote Support on the right. */
+.layout-2col:has(.gesoft-chat-layout) > .sidebar-2col {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+}
+
+@media (min-width: 1100px) {
+    #conv-layout-customer > .gesoft-chat-aside {
+        position: sticky;
+        top: 0;
+        max-height: 100vh;
+        overflow-y: auto;
+    }
+}
+
+/* A long reply scrolls inside the editor instead of pushing the chat off the
+   screen. */
+.gesoft-chat-composer .note-editable {
+    max-height: 35vh;
+    overflow-y: auto;
+}
+
+/* Shown when a message arrives while the agent is reading further up, instead
+   of pulling the page away from what they are reading. */
+.gesoft-chat-newer {
+    position: absolute;
+    top: -46px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 14px;
+    border: 0;
+    border-radius: 16px;
+    background: #0d5652;
+    color: #fff;
+    font-size: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .2);
+    cursor: pointer;
+}
+
+.gesoft-chat-newer[hidden] {
+    display: none;
+}
+
+/*
  * Receipts under an agent's chat replies: grey ticks until the visitor has
  * seen the reply, green once they have.
  */

@@ -17,7 +17,8 @@
  *   - "the customer is typing…" in a chat, and three dots in the visitor's
  *     bubble while the agent writes a reply;
  *   - "are you still there?" and the block dialog, from More Actions;
- *   - a chat reply that stays on the page instead of reloading it.
+ *   - a chat reply that stays on the page instead of reloading it;
+ *   - in Chat Mode, the newest message at the bottom and the editor under it.
  *
  * Words follow the agent's own interface language, read from the page core
  * rendered; English is the fallback.
@@ -53,6 +54,7 @@
             delivered: 'Delivered',
             seen: 'Seen',
             seenAt: 'Seen at {time}',
+            newer: 'New messages',
             failed: 'That did not work. Try again.'
         },
         ro: {
@@ -72,6 +74,7 @@
             delivered: 'Primit',
             seen: 'Văzut',
             seenAt: 'Văzut la {time}',
+            newer: 'Mesaje noi',
             failed: 'Nu a funcționat. Încercați din nou.'
         }
     };
@@ -532,6 +535,87 @@
         });
     }
 
+    // A chat in Chat Mode, read like a chat: the editor under the messages,
+    // which operator.css has already turned around on the server's mark, and
+    // the page kept at the newest message the way a chat window is.
+    //
+    // This runs before core's own start-up shows the editor, which core keeps
+    // hidden until then, so the editor is never seen above the messages first.
+    // A browser without `:has()` cannot turn the messages around; the editor
+    // then stays where core put it, because half of this layout would be worse
+    // than either whole one.
+    var chatLayout = null;
+
+    function newestAtBottom() {
+        var mark = $('#conv-layout-main > .gesoft-chat-layout');
+        if (!mark.length) { return; }
+
+        var editor = $('#conv-layout-header .conv-action-wrapper').first(), turned = false;
+        try { turned = !!(window.CSS && CSS.supports('selector(:has(*))')); } catch (e) {}
+        if (!editor.length || !turned) {
+            mark.remove();
+            return;
+        }
+
+        var newer = $('<button type="button" class="gesoft-chat-newer" hidden></button>').text(T.newer + ' ↓');
+        editor.addClass('gesoft-chat-composer').prepend(newer).insertAfter('#conv-layout-main');
+
+        // The customer panel, with Start Remote Support, would otherwise stay
+        // at the top of a page that now opens at the bottom. Its contents
+        // follow the page instead; the panel itself keeps core's position.
+        $('#conv-layout-customer').wrapInner('<div class="gesoft-chat-aside"></div>');
+
+        // Core binds "switch to a note" inside the subject block on its own
+        // start-up, and finds nothing there now.
+        $(document).on('click', '.gesoft-chat-composer .switch-to-note', function (e) {
+            if (e.isDefaultPrevented() || typeof switchToNote !== 'function') { return; }
+            e.preventDefault();
+            switchToNote();
+        });
+
+        // Not window.scrollTo: main.js declares a global scrollTo(el, …) of its
+        // own, which takes that name's place.
+        var root = document.scrollingElement || document.documentElement,
+            main = document.getElementById('conv-layout-main'),
+            atBottom = true;
+
+        function toBottom() {
+            root.scrollTop = root.scrollHeight;
+            atBottom = true;
+            newer.prop('hidden', true);
+        }
+
+        $(window).on('scroll', function () {
+            atBottom = root.scrollHeight - window.scrollY - window.innerHeight < 60;
+            if (atBottom) { newer.prop('hidden', true); }
+        });
+        newer.on('click', toBottom);
+
+        // At the bottom, the page stays there as the chat grows: a message, the
+        // typing line, a picture that finished loading, a longer reply.
+        if (window.ResizeObserver) {
+            var resized = new ResizeObserver(function () { if (atBottom) { toBottom(); } });
+            resized.observe(main);
+            resized.observe(editor[0]);
+        }
+
+        // Further up, reading, the agent is told a message arrived rather than
+        // pulled away from what they are reading.
+        if (window.MutationObserver) {
+            new MutationObserver(function (changes) {
+                if (atBottom) { return; }
+                for (var i = 0; i < changes.length; i++) {
+                    for (var j = 0; j < changes[i].addedNodes.length; j++) {
+                        if ($(changes[i].addedNodes[j]).is('.thread')) { newer.prop('hidden', false); return; }
+                    }
+                }
+            }).observe(main, { childList: true });
+        }
+
+        chatLayout = { toBottom: toBottom };
+        toBottom();
+    }
+
     // A reply in a chat stays on the page.
     //
     // After an agent sends a chat reply, core reloads the whole conversation
@@ -598,6 +682,8 @@
         $('.btn-reply-submit').button('reset');
         typedAt = 0;
 
+        // The agent's own reply is always followed, wherever they were.
+        if (chatLayout) { chatLayout.toBottom(); }
         refreshConversation();
         body.summernote('focus');
     }
@@ -616,8 +702,9 @@
             var main = $('#conv-layout-main');
 
             // Messages not on screen yet, in the order the page lists them,
-            // newest first, above the ones already there: where core's own
-            // realtime handler puts a colleague's reply.
+            // newest first, ahead of the ones already there: where core's own
+            // realtime handler puts a colleague's reply. A chat in Chat Mode
+            // shows the list turned around, so they appear at the bottom.
             var fresh = page.find('#conv-layout-main > .thread[id^="thread-"]').filter(function () {
                 return !document.getElementById(this.id);
             });
@@ -662,6 +749,9 @@
 
         // Only for signed-in agents; the visitor bubble shares nothing here.
         if (!$('meta[name="csrf-token"]').length) { return; }
+
+        // First, before core's own start-up shows the reply editor.
+        try { newestAtBottom(); } catch (e) {}
 
         refresh(false);
         setInterval(function () { refresh(true); }, POLL_MS);

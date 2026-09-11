@@ -106,6 +106,21 @@ between two polls moved the poll pointer past an agent reply written in
 between, and that reply never reached the visitor. The bubble now keeps its
 pointer and puts every message in the order the server wrote it.
 
+In Chat Mode a chat reads like a chat for the agent: the oldest message at the
+top, the newest at the bottom, and the reply editor under it, kept in view
+while the agent scrolls back. Core's page is built for email, with the editor
+above the messages and the newest first; Live Helper Chat, LiveChat, Intercom,
+Front and Help Scout itself since 2024 put a conversation the other way, and
+Zendesk lets a helpdesk choose per channel. Email conversations, and chats
+outside Chat Mode, keep core's page. Nothing in core changes: the server marks
+the page, CSS turns the list of messages around on screen from the first paint,
+so core's own realtime handler, which puts a new message first, now shows it
+last, and the editor is moved before core's start-up shows it. The page opens at
+the newest message and stays there as the chat grows; an agent reading further
+up is told "New messages" instead of being pulled down. The chat list and the
+customer panel, with Start Remote Support, follow the page.
+`GESOFT_LIVE_CHAT_NEWEST_AT_BOTTOM=false` brings back core's layout.
+
 The chat also has a page of its own, `/chat`, for a link rather than an
 embed: the same bubble, open from the start and filling the window, so a site
 needs no bubble and the helpdesk no second hostname.

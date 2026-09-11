@@ -238,6 +238,34 @@ await waitFor(`!!document.querySelector('.form-reply .note-editable')`, 15000);
 await sleep(1000);
 check('the chat is open in chat mode, with an empty reply',
   await ev(`document.body.classList.contains('chat-mode') && !$(".form-reply:first :input[name='is_note']").val() && !$('#body').val()`), true);
+
+// ---------------------------------------------- a chat reads like a chat
+// In Chat Mode the newest message is at the bottom and the editor under it.
+// The list keeps core's order, newest first, and is turned around on screen,
+// so what is checked is where things are drawn.
+const layout = () => ev(`(() => {
+  const root = document.scrollingElement;
+  const composer = document.querySelector('#conv-layout > .conv-action-wrapper.gesoft-chat-composer');
+  const tops = [...document.querySelectorAll('#conv-layout-main > .thread')].map(t => t.getBoundingClientRect().top);
+  const newer = document.querySelector('.gesoft-chat-newer');
+  return {
+    composer: !!composer,
+    inHeader: !!document.querySelector('#conv-layout-header .conv-action-wrapper'),
+    messages: tops.length,
+    newestLowest: tops.length > 1 && tops.every((top, i) => i === 0 || top < tops[i - 1]),
+    fromBottom: Math.round(root.scrollHeight - root.scrollTop - innerHeight),
+    top: Math.round(root.scrollTop),
+    editorGap: composer ? Math.round(innerHeight - composer.getBoundingClientRect().bottom) : null,
+    newer: !!newer && !newer.hidden,
+  };
+})()`);
+let shape = await layout();
+check('in Chat Mode the reply editor is under the messages, not above them', [shape.composer, shape.inHeader], [true, false]);
+check('  the messages read oldest at the top, newest at the bottom', shape.newestLowest, true);
+check('  and the page opens at the newest message', await waitFor(`document.scrollingElement.scrollHeight - document.scrollingElement.scrollTop - innerHeight <= 2`, 5000), true);
+const scrollBy = (top) => ev(`(() => { document.scrollingElement.scrollTop = ${top}; return true; })()`);
+const settle = () => sleep(400);
+
 await ev(`window.__gesoftStay = 'still here'; true`);
 const sendState = () => ev(`({
   focus: (document.activeElement || {}).className || '',
@@ -272,13 +300,16 @@ check('  and no draft id behind', await ev(`document.querySelector(".form-reply 
 
 await pressEnterIn(`Al doilea răspuns ${RUN}`);
 check('a second reply straight after is sent too', await waitForReplies(repliesBefore + 2), true);
-check('  and appears above the first', await waitFor(`(() => {
-  const texts = [...document.querySelectorAll('#conv-layout-main .thread')].map(t => t.innerText);
-  const second = texts.findIndex(t => t.includes(${JSON.stringify(`Al doilea răspuns ${RUN}`)}));
-  const first = texts.findIndex(t => t.includes(${JSON.stringify(`Primul răspuns ${RUN}`)}));
-  return second !== -1 && first !== -1 && second < first;
+check('  and appears below the first', await waitFor(`(() => {
+  const at = (text) => {
+    const t = [...document.querySelectorAll('#conv-layout-main .thread')].find(t => t.innerText.includes(text));
+    return t ? t.getBoundingClientRect().top : null;
+  };
+  const second = at(${JSON.stringify(`Al doilea răspuns ${RUN}`)}), first = at(${JSON.stringify(`Primul răspuns ${RUN}`)});
+  return second !== null && first !== null && second > first;
 })()`, 10000), true);
 check('  still without a reload', await ev(`window.__gesoftStay || null`), 'still here');
+check("  and the page follows the agent's reply down", await waitFor(`document.scrollingElement.scrollHeight - document.scrollingElement.scrollTop - innerHeight <= 2`, 5000), true);
 check('the status shown is the one the server set',
   await waitFor(`convGetStatus() === ${Number(one(`select status from conversations where id=${here.conv}`))}`, 5000), true);
 // The other direction: a visitor's message reaches the agent's chat page
@@ -288,6 +319,29 @@ const t0 = Date.now();
 const arrived = await waitFor(onScreen(`Vizitatorul revine ${RUN}`), 6000);
 check("a visitor's message appears on the agent's chat page within 4 s", arrived && Date.now() - t0 <= 4500, true);
 check('  still without a reload', await ev(`window.__gesoftStay || null`), 'still here');
+await settle();
+check('  at the bottom of the page, which stays at the newest message', (await layout()).fromBottom <= 2, true);
+
+// Reading further up: the editor stays in view, and a new message is announced
+// rather than pulling the page down. A shorter window so the chat is sure to be
+// taller than it.
+await S('Emulation.setDeviceMetricsOverride', { width: 1400, height: 600, deviceScaleFactor: 1, mobile: false });
+await settle();
+await scrollBy(0);
+await settle();
+shape = await layout();
+check('scrolled back to the start of the chat, the editor is still in view', [shape.top, shape.editorGap >= 0 && shape.editorGap <= 16], [0, true]);
+await say(here, `Mesaj cât citește mai sus ${RUN}`);
+await waitFor(onScreen(`Mesaj cât citește mai sus ${RUN}`), 6000);
+await settle();
+shape = await layout();
+check('  a message arriving then leaves the page where it is', shape.top, 0);
+check('  and says there are new messages', shape.newer, true);
+await ev(`(document.querySelector('.gesoft-chat-newer') || { click() {} }).click(); true`);
+await settle();
+shape = await layout();
+check('  which goes to the newest message', [shape.fromBottom <= 2, shape.newer], [true, false]);
+await S('Emulation.setDeviceMetricsOverride', { width: 1400, height: 900, deviceScaleFactor: 1, mobile: false });
 
 const visitorSees = (await pollOnce(here)).messages.map((m) => m.body);
 check('the visitor receives both replies',
@@ -313,6 +367,14 @@ const agentSeen = () => Number(one(`select agent_seen_id from gesoft_live_chat_r
 for (let i = 0; i < 12 && agentSeen() !== newestVisitor; i++) await sleep(1000);
 check("the agent's open chat page marks the visitor's messages seen", agentSeen(), newestVisitor);
 check('  which the visitor is not told', (await pollOnce(here)).receipts, { delivered: newestVisitor, seen: 0 });
+
+// Outside Chat Mode a chat keeps core's page: the editor above, newest first.
+await ev(`window.onbeforeunload = null; true`);
+await open(`/conversation/${here.conv}?chat_mode=0`);
+await waitFor(`!!document.querySelector('#conv-layout-main .thread')`, 15000);
+shape = await layout();
+check("outside Chat Mode a chat keeps core's layout, the editor above the messages",
+  [shape.inHeader, shape.composer, await ev(`!!document.querySelector('.gesoft-chat-layout')`)], [true, false, false]);
 
 // ------------------------------------------------------------ blocking a visitor
 const blockedEmail = `e2e-op-blocat-${RUN}@gesoft.test`;

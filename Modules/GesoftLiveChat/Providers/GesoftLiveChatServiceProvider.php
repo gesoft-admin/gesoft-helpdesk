@@ -192,22 +192,32 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
             ])->render();
         }, 30, 2);
 
-        // "The customer is typing…", above the conversation's messages, on
-        // chat conversations only. Rendered hidden; operator.js shows it and
-        // writes its words in the agent's language.
+        // Two things at the head of a chat conversation's messages, on chat
+        // conversations only.
         //
-        // The line also anchors the three-second beat, which carries receipts
-        // as well, so it is rendered when either is on.
+        // The mark that turns the page around in Chat Mode: operator.css reads
+        // it to show the newest message at the bottom, and operator.js to move
+        // the reply editor under the messages. Never on a printed page.
+        //
+        // "The customer is typing…", rendered hidden; operator.js shows it and
+        // writes its words in the agent's language. It also anchors the
+        // three-second beat, which carries receipts as well, so it is rendered
+        // when either is on. With the page turned around it sits last on
+        // screen, just above the editor.
         \Eventy::addAction('conversation.before_threads', function ($conversation) {
-            if (!$conversation || !$conversation->isChat()
-                || !(config('gesoftlivechat.typing') || config('gesoftlivechat.receipts'))
-            ) {
+            if (!$conversation || !$conversation->isChat()) {
                 return;
             }
 
-            echo \View::make('gesoftlivechat::partials/typing', [
-                'conversation' => $conversation,
-            ])->render();
+            if (config('gesoftlivechat.newest_at_bottom') && $conversation->isInChatMode() && !\Helper::isPrint()) {
+                echo \View::make('gesoftlivechat::partials/layout')->render();
+            }
+
+            if (config('gesoftlivechat.typing') || config('gesoftlivechat.receipts')) {
+                echo \View::make('gesoftlivechat::partials/typing', [
+                    'conversation' => $conversation,
+                ])->render();
+            }
         }, 20, 1);
 
         // Receipts under an agent's chat replies: sent, delivered, seen — the

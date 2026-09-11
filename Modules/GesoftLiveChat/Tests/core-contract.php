@@ -284,6 +284,29 @@ $contract = [
         ],
         'cost'  => 'Receipts disappear from agents\' chat replies, or an agent reading the chat no longer marks the visitor\'s messages seen.',
     ],
+    [
+        'what'  => 'the conversation page: editor in the header, hidden until start-up, messages after',
+        'file'  => 'resources/views/conversations/view.blade.php',
+        'needs' => [
+            '<div id="conv-layout-header">', '<div class="conv-action-wrapper">',
+            '<div class="conv-block conv-reply-block conv-action-block hidden">',
+            '<div id="conv-layout-customer">', '<div id="conv-layout-main">',
+            "@action('conversation.before_threads', \$conversation)",
+        ],
+        'cost'  => 'In Chat Mode the editor stays above the messages while they read newest at the bottom, or is seen jumping there after the page shows.',
+    ],
+    [
+        'what'  => 'core adds a new message first in the list, and starts chat mode after module scripts',
+        'file'  => 'public/js/main.js',
+        'needs' => ["\$('#conv-layout-main').prepend(", '$(".conv-reply").click();', "\$('#conv-subject .switch-to-note').click(function(e) {", 'function switchToNote()'],
+        'cost'  => 'A colleague\'s reply shows at the top of a chat that reads newest at the bottom, or "switch to a note" stops working under the moved editor.',
+    ],
+    [
+        'what'  => 'module scripts load before the page\'s own start-up, beside a sidebar column',
+        'file'  => 'resources/views/layouts/app.blade.php',
+        'needs' => ["\\Eventy::filter('javascripts'", "@yield('javascript')", '<div class="layout-2col">', '<div class="sidebar-2col">'],
+        'cost'  => 'The chat list no longer follows a chat page that opens at the newest message, or the editor is shown above the messages before it moves.',
+    ],
 ];
 
 $pass = 0; $fail = 0;

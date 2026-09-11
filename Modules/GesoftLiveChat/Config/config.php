@@ -221,6 +221,21 @@ return [
     'receipts_seen_to_visitor' => env('GESOFT_LIVE_CHAT_RECEIPTS_SEEN_TO_VISITOR', false),
 
     /**
+     * Whether a chat reads like a chat for the agent in Chat Mode: the oldest
+     * message at the top, the newest at the bottom, and the reply editor under
+     * it, kept in view while the agent scrolls back. Off: FreeScout's own
+     * layout, the editor above the messages and the newest first.
+     *
+     * Core's layout suits email, where a thread is long and the newest message
+     * is the one to read. A chat is read in order, and support chat consoles
+     * build it that way: Live Helper Chat, LiveChat, Intercom, Front, and Help
+     * Scout itself since 2024. Zendesk lets a helpdesk pick per channel and
+     * suggests exactly this split. Email conversations, and chats outside Chat
+     * Mode, keep core's layout either way.
+     */
+    'newest_at_bottom' => env('GESOFT_LIVE_CHAT_NEWEST_AT_BOTTOM', true),
+
+    /**
      * The language of automatic messages when the bubble did not say which:
      * the remote support link, "we can see your computer now", "are you still
      * there?". The bubble sends its own language with the first message.

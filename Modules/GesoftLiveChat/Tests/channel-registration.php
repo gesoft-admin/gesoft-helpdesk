@@ -199,10 +199,26 @@ namespace {
     check('the typing line is added above the messages', isset(Eventy::$stub->actions['conversation.before_threads']), true);
     ob_start(); \Eventy::action('conversation.before_threads', new ConversationStub(false)); $rendered = ob_get_clean();
     check('  but not on an email conversation', $rendered, '');
+    // The line also anchors the beat that carries receipts, so it goes only
+    // when both are off.
     $CONFIG['gesoftlivechat.typing'] = false;
+    $CONFIG['gesoftlivechat.receipts'] = false;
     ob_start(); \Eventy::action('conversation.before_threads', new ConversationStub(true)); $rendered = ob_get_clean();
-    check('  nor with typing switched off', $rendered, '');
-    unset($CONFIG['gesoftlivechat.typing']);
+    check('  nor with typing and receipts both switched off', $rendered, '');
+    unset($CONFIG['gesoftlivechat.typing'], $CONFIG['gesoftlivechat.receipts']);
+
+    check('receipts are added under messages', isset(Eventy::$stub->actions['thread.meta']), true);
+    $CONFIG['gesoftlivechat.receipts'] = true;
+    $reply = (object) ['id' => 7, 'type' => \App\Thread::TYPE_MESSAGE, 'state' => 2];
+    $visitor_line = (object) ['id' => 8, 'type' => \App\Thread::TYPE_CUSTOMER, 'state' => 2];
+    ob_start(); \Eventy::action('thread.meta', $reply, null, null, new ConversationStub(false)); $rendered = ob_get_clean();
+    check('  but not on an email conversation', $rendered, '');
+    ob_start(); \Eventy::action('thread.meta', $visitor_line, null, null, new ConversationStub(true)); $rendered = ob_get_clean();
+    check('  nor under the visitor\'s own messages', $rendered, '');
+    $CONFIG['gesoftlivechat.receipts'] = false;
+    ob_start(); \Eventy::action('thread.meta', $reply, null, null, new ConversationStub(true)); $rendered = ob_get_clean();
+    check('  nor with receipts switched off', $rendered, '');
+    unset($CONFIG['gesoftlivechat.receipts']);
 
     // A customer's chat message is announced by the in-page alert, so the bell
     // must not file it as well — and nothing else may be cancelled with it.

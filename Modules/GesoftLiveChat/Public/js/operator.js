@@ -49,6 +49,10 @@
             left: 'The customer left the chat',
             ended: 'The customer ended the chat',
             typing: 'The customer is typing…',
+            sent: 'Sent',
+            delivered: 'Delivered',
+            seen: 'Seen',
+            seenAt: 'Seen at {time}',
             failed: 'That did not work. Try again.'
         },
         ro: {
@@ -64,6 +68,10 @@
             left: 'Clientul a părăsit chatul',
             ended: 'Clientul a încheiat chatul',
             typing: 'Clientul scrie…',
+            sent: 'Trimis',
+            delivered: 'Primit',
+            seen: 'Văzut',
+            seenAt: 'Văzut la {time}',
             failed: 'Nu a funcționat. Încercați din nou.'
         }
     };
@@ -429,12 +437,61 @@
         return Date.now() - typedAt < TYPING_MS + 1000;
     }
 
+    // The visitor's newest message on this page. The beat runs only while the
+    // page is visible, so this is what the agent had in front of them.
+    function newestVisitorMessageShown() {
+        var newest = 0;
+        $('#conv-layout-main .thread.thread-type-customer[data-thread_id]').each(function () {
+            newest = Math.max(newest, parseInt($(this).attr('data-thread_id'), 10) || 0);
+        });
+        return newest;
+    }
+
+    // Ticks under the agents' replies, from the pointers the beat returns:
+    // one once sent, two once the bubble fetched it, green "Seen" once it was
+    // on the visitor's screen, the newest seen one with the time.
+    var lastReceipts = null;
+
+    function paintReceipts(receipts) {
+        if (!receipts) { return; }
+        lastReceipts = receipts;
+
+        var delivered = parseInt(receipts.delivered, 10) || 0,
+            seen = parseInt(receipts.seen, 10) || 0,
+            marks = $('.gesoft-chat-receipt[data-thread-id]'),
+            newest = 0;
+
+        marks.each(function () {
+            var id = parseInt($(this).attr('data-thread-id'), 10) || 0;
+            if (id <= seen && id > newest) { newest = id; }
+        });
+
+        marks.each(function () {
+            var mark = $(this),
+                id = parseInt(mark.attr('data-thread-id'), 10) || 0,
+                state = id <= seen ? 'seen' : id <= Math.max(delivered, seen) ? 'delivered' : 'sent',
+                text = state === 'seen'
+                    ? (id === newest && receipts.seen_at ? T.seenAt.replace('{time}', receipts.seen_at) : T.seen)
+                    : state === 'delivered' ? T.delivered : T.sent;
+
+            mark.attr('data-state', state);
+            mark.find('.gesoft-receipt-ticks').text(state === 'sent' ? '✓' : '✓✓');
+            mark.find('.gesoft-receipt-text').text(text);
+        });
+    }
+
     function typingBeat(id) {
         if (typingBusy || document.hidden) { return; }
         typingBusy = true;
 
-        $.post(base() + '/gesoft-live-chat/agent/' + id + '/typing', { _token: csrf(), typing: writingReply() ? 1 : 0 })
+        $.post(base() + '/gesoft-live-chat/agent/' + id + '/typing', {
+            _token: csrf(),
+            typing: writingReply() ? 1 : 0,
+            seen: newestVisitorMessageShown()
+        })
             .done(function (res) {
+                paintReceipts(res && res.receipts);
+
                 // Found again every time rather than kept: core redraws parts
                 // of the conversation page when a message arrives.
                 var box = $('.gesoft-chat-typing').first(), on = !!(res && res.visitor_typing);
@@ -567,6 +624,8 @@
             if (fresh.length) {
                 var first = main.children('.thread').first();
                 if (first.length) { fresh.insertBefore(first); } else { main.append(fresh); }
+                // The page was drawn a moment ago; the beat may know better.
+                paintReceipts(lastReceipts);
             }
 
             syncMenu(page, '#conv-status', '.conv-status', 'data-status');

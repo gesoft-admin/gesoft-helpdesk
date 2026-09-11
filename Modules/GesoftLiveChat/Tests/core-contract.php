@@ -275,6 +275,15 @@ $contract = [
         'needs' => ['const TYPE_EMAIL', 'const SOURCE_TYPE_WEB'],
         'cost'  => 'A message left while nobody is available can no longer be turned into a conversation answered by email.',
     ],
+    [
+        'what'  => 'a module can add a line under a message, and a message says its type and id',
+        'file'  => 'resources/views/conversations/partials/thread.blade.php',
+        'needs' => [
+            "@action('thread.meta', \$thread, \$loop, \$threads, \$conversation, \$mailbox)",
+            '<div class="thread thread-type-{{ $thread->getTypeName() }}" id="thread-{{ $thread->id }}" data-thread_id="{{ $thread->id }}">',
+        ],
+        'cost'  => 'Receipts disappear from agents\' chat replies, or an agent reading the chat no longer marks the visitor\'s messages seen.',
+    ],
 ];
 
 $pass = 0; $fail = 0;

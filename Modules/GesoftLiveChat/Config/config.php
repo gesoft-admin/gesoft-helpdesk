@@ -195,6 +195,24 @@ return [
     'typing' => env('GESOFT_LIVE_CHAT_TYPING', true),
 
     /**
+     * Delivery receipts, both ways: a message is sent (the server has it),
+     * delivered (the other side's screen fetched it) and seen (it was on that
+     * screen while the screen could be looked at). The visitor sees this on
+     * their own messages in the bubble, the agent on their replies in the
+     * conversation.
+     *
+     * Live Helper Chat does the same over its existing polls, and so does this:
+     * no request is added.
+     */
+    'receipts' => env('GESOFT_LIVE_CHAT_RECEIPTS', true),
+
+    /**
+     * Whether the visitor is told that an agent has seen their message, or
+     * only that it was delivered. Agents always see what the visitor has seen.
+     */
+    'receipts_seen_to_visitor' => env('GESOFT_LIVE_CHAT_RECEIPTS_SEEN_TO_VISITOR', true),
+
+    /**
      * The language of automatic messages when the bubble did not say which:
      * the remote support link, "we can see your computer now", "are you still
      * there?". The bubble sends its own language with the first message.

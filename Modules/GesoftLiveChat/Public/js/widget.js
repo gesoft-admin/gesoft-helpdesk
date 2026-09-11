@@ -67,6 +67,11 @@
             nobodyAvailable: 'Nu este niciun coleg disponibil chiar acum. Dacă nu puteți aștepta, lăsați-ne un mesaj și vă răspundem pe email.',
             typing: 'Un coleg scrie…',
             typingNamed: '{name} scrie…',
+            sending: 'Se trimite…',
+            sent: 'Trimis',
+            delivered: 'Primit',
+            seen: 'Văzut',
+            seenAt: 'Văzut la {time}',
             errEmpty: 'Scrieți mai întâi un mesaj.',
             errEmail: 'Lăsați o adresă de email ca să vă putem răspunde.',
             errTooMany: 'Ați pornit prea multe conversații. Încercați din nou peste câteva minute.',
@@ -108,6 +113,11 @@
             nobodyAvailable: 'Nobody is available right now. If you cannot wait, leave us a message and we will answer by email.',
             typing: 'Someone is typing…',
             typingNamed: '{name} is typing…',
+            sending: 'Sending…',
+            sent: 'Sent',
+            delivered: 'Delivered',
+            seen: 'Seen',
+            seenAt: 'Seen at {time}',
             errEmpty: 'Please write a message first.',
             errEmail: 'Please leave an email address so we can answer you.',
             errTooMany: 'You have started too many conversations. Please try again in a few minutes.',
@@ -184,6 +194,9 @@
     var polling = false;
     var inFlight = false;
     var timerDue = 0;
+    // How far the agents have got with the visitor's messages, from the last
+    // poll; null when the server does not keep receipts.
+    var receipts = { delivered: 0, seen: 0, seen_at: null };
 
     // ---------------------------------------------------------------- markup
 
@@ -287,6 +300,11 @@
         '.row.agent .msg a { color: var(--brand); }',
         '@media (prefers-color-scheme: dark) { .row.agent .msg a { color: #7fd3cb; } }',
         '.time { font-size: 10px; color: var(--muted); margin: 2px 4px 0; }',
+        '.receipt { margin-left: 5px; font-weight: 700; }',
+        '.receipt:empty { display: none; }',
+        '.receipt.seen { color: var(--brand); }',
+        '@media (prefers-color-scheme: dark) { .receipt.seen { color: #7fd3cb; } }',
+        '.row.pending .msg { opacity: .65; }',
         '.note { align-self: center; max-width: 92%; text-align: center; font-size: 12px; color: var(--muted);',
         '  background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 7px 12px; }',
         '.note .btn { margin-top: 6px; }',
@@ -467,7 +485,9 @@
     // support call that fails on the last step.
     var URL_RE = /(https?:\/\/[^\s<>"']+)/g;
 
-    function add(from, body, author, at) {
+    // `id` is the message's own, once the server has it. A visitor's message
+    // is drawn before that, as pending, and given its id by markSent().
+    function add(from, body, author, at, id) {
         var row = el('div', 'row ' + from);
         if (from === 'agent' && author) { row.appendChild(el('div', 'author', author)); }
 
@@ -486,9 +506,21 @@
             }
         }
         row.appendChild(bubble);
-        row.appendChild(el('div', 'time', clock(at)));
+        var time = el('div', 'time', clock(at));
+        if (from === 'visitor') { time.appendChild(el('span', 'receipt')); }
+        row.appendChild(time);
 
-        log.appendChild(row);
+        if (id) {
+            row.setAttribute('data-id', String(id));
+            place(row);
+        } else {
+            if (from === 'visitor') {
+                row.classList.add('pending');
+                row.querySelector('.receipt').setAttribute('title', T.sending);
+            }
+            log.appendChild(row);
+        }
+        paintReceipts();
         log.scrollTop = log.scrollHeight;
 
         if (from === 'agent' && !panel.classList.contains('open')) {
@@ -498,6 +530,91 @@
         }
 
         return row;
+    }
+
+    // In the order the server wrote them. A reply the agent wrote while the
+    // visitor's own message was on its way arrives after it on screen, but
+    // was said first.
+    function place(row) {
+        var id = parseInt(row.getAttribute('data-id'), 10) || 0,
+            rows = log.querySelectorAll('.row[data-id]');
+
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i] !== row && (parseInt(rows[i].getAttribute('data-id'), 10) || 0) > id) {
+                log.insertBefore(row, rows[i]);
+                return;
+            }
+        }
+        log.appendChild(row);
+    }
+
+    // The server has the visitor's message: it has an id now, and the poll
+    // that brings it back must not draw it a second time.
+    function markSent(row, id) {
+        if (!id) { return; }
+        seen[id] = true;
+        if (!row || !row.parentNode) { return; }
+        row.classList.remove('pending');
+        row.setAttribute('data-id', String(id));
+        place(row);
+        paintReceipts();
+    }
+
+    function pendingWith(body) {
+        var squash = function (s) { return String(s).replace(/\s+/g, ' ').trim(); },
+            rows = log.querySelectorAll('.row.visitor.pending');
+
+        for (var i = 0; i < rows.length; i++) {
+            var bubble = rows[i].querySelector('.msg');
+            if (bubble && squash(bubble.textContent) === squash(body)) { return rows[i]; }
+        }
+        return null;
+    }
+
+    // One tick once sent, two once an agent's screen fetched it, "Seen" once
+    // it was in front of an agent — the newest seen message with the time,
+    // the ones before it with the ticks alone.
+    function paintReceipts() {
+        var rows = log.querySelectorAll('.row.visitor[data-id]'), newest = 0, i, id;
+
+        for (i = 0; i < rows.length; i++) {
+            id = parseInt(rows[i].getAttribute('data-id'), 10) || 0;
+            if (receipts && id <= receipts.seen && id > newest) { newest = id; }
+        }
+
+        for (i = 0; i < rows.length; i++) {
+            var mark = rows[i].querySelector('.receipt');
+            if (!mark) { continue; }
+            if (!receipts) {
+                mark.textContent = '';
+                continue;
+            }
+
+            id = parseInt(rows[i].getAttribute('data-id'), 10) || 0;
+            var state = id <= receipts.seen ? 'seen'
+                : id <= Math.max(receipts.delivered, receipts.seen) ? 'delivered' : 'sent';
+
+            mark.className = 'receipt ' + state;
+            mark.textContent = state === 'sent' ? '✓' : '✓✓';
+            if (id === newest) {
+                mark.textContent += ' ' + (receipts.seen_at ? T.seenAt.replace('{time}', clock(receipts.seen_at)) : T.seen);
+            }
+            mark.setAttribute('title', state === 'seen' ? T.seen : state === 'delivered' ? T.delivered : T.sent);
+        }
+    }
+
+    // What the visitor can be said to have seen: the newest agent message in
+    // the window, while the window is open, on the chat, in a visible tab.
+    function newestAgentMessageShown() {
+        if (document.hidden || !panel.classList.contains('open') || panel.getAttribute('data-mode') !== 'chat') {
+            return 0;
+        }
+
+        var newest = 0, rows = log.querySelectorAll('.row.agent[data-id]');
+        for (var i = 0; i < rows.length; i++) {
+            newest = Math.max(newest, parseInt(rows[i].getAttribute('data-id'), 10) || 0);
+        }
+        return newest;
     }
 
     function note(text, action, onAction) {
@@ -542,6 +659,7 @@
         token = null;
         since = 0;
         seen = {};
+        receipts = { delivered: 0, seen: 0, seen_at: null };
         typedAt = 0;
         endBtn.hidden = true;
         confirm.hidden = true;
@@ -573,6 +691,7 @@
     function fresh() {
         while (log.firstChild) { log.removeChild(log.firstChild); }
         seen = {};
+        receipts = { delivered: 0, seen: 0, seen_at: null };
         unread = 0;
         badge.hidden = true;
     }
@@ -623,19 +742,35 @@
         inFlight = true;
         lastPollAt = Date.now();
         fetch(BASE + '/gesoft-live-chat/poll?token=' + encodeURIComponent(token) + '&since=' + since + '&lang=' + LANG
-            + '&typing=' + (visitorTyping() ? 1 : 0))
+            + '&typing=' + (visitorTyping() ? 1 : 0) + '&seen=' + newestAgentMessageShown())
             .then(function (r) { return r.json(); })
             .then(function (res) {
                 if (!res || res.status !== 'success') { return; }
+
+                // Before the messages, so each is drawn with its ticks.
+                if ('receipts' in res) {
+                    receipts = res.receipts || null;
+                }
 
                 // Messages first: the agent's last words before closing arrive
                 // in the same answer that says the conversation is closed.
                 (res.messages || []).forEach(function (m) {
                     if (seen[m.id]) { return; }
+
+                    // A poll that crossed the send can bring the visitor's
+                    // message back before the send answered. It is the one
+                    // already on screen as pending, not a second message.
+                    var mine = m.from === 'visitor' && pendingWith(m.body);
+                    if (mine) {
+                        markSent(mine, m.id);
+                        return;
+                    }
+
                     seen[m.id] = true;
-                    add(m.from, m.body, m.author, m.at);
+                    add(m.from, m.body, m.author, m.at, m.id);
                     active();
                 });
+                paintReceipts();
 
                 if (typeof res.since === 'number') { since = res.since; }
 
@@ -779,7 +914,9 @@
 
             fresh();
             show('chat');
-            add('visitor', text, null, null);
+            var first = res.id || res.since;
+            add('visitor', text, null, null, first);
+            if (first) { seen[first] = true; }
             active();
             startPolling();
         }).catch(function () {
@@ -905,7 +1042,15 @@
                 }
 
                 if (res.token) { remember(res.token); }
-                if (typeof res.since === 'number' && res.since > since) { since = res.since; }
+
+                // The poll pointer is not moved to this message: an agent
+                // reply written since the last poll has a smaller id, and
+                // moving past it lost that reply for good. The next poll
+                // brings the reply, and this message only as already drawn.
+                // A first message is the conversation's first thread, so
+                // there is nothing before it to lose.
+                if (path === 'start' && typeof res.since === 'number') { since = res.since; }
+                markSent(row, res.id || res.since);
 
                 // An answer is likely soon.
                 active();

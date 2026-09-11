@@ -3,8 +3,10 @@
 namespace Modules\GesoftLiveChat\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Modules\GesoftLiveChat\Entities\ChatReceipt;
 use Modules\GesoftLiveChat\Support\Origin;
 use Modules\GesoftLiveChat\Support\Presence;
+use Modules\GesoftLiveChat\Support\Receipts;
 
 if (!defined('GESOFT_LIVE_CHAT_MODULE')) {
     define('GESOFT_LIVE_CHAT_MODULE', 'gesoftlivechat');
@@ -193,8 +195,13 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
         // "The customer is typing…", above the conversation's messages, on
         // chat conversations only. Rendered hidden; operator.js shows it and
         // writes its words in the agent's language.
+        //
+        // The line also anchors the three-second beat, which carries receipts
+        // as well, so it is rendered when either is on.
         \Eventy::addAction('conversation.before_threads', function ($conversation) {
-            if (!$conversation || !$conversation->isChat() || !config('gesoftlivechat.typing')) {
+            if (!$conversation || !$conversation->isChat()
+                || !(config('gesoftlivechat.typing') || config('gesoftlivechat.receipts'))
+            ) {
                 return;
             }
 
@@ -202,6 +209,37 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
                 'conversation' => $conversation,
             ])->render();
         }, 20, 1);
+
+        // Receipts under an agent's chat replies: sent, delivered, seen — the
+        // newest seen one with the time. Drawn from what the server knows when
+        // the page is rendered; operator.js keeps them current from the beat.
+        \Eventy::addAction('thread.meta', function ($thread, $loop = null, $threads = null, $conversation = null) {
+            if (!$conversation || !$conversation->isChat() || !config('gesoftlivechat.receipts')
+                || $thread->type != \App\Thread::TYPE_MESSAGE
+                || $thread->state != \App\Thread::STATE_PUBLISHED
+            ) {
+                return;
+            }
+
+            $receipt = ChatReceipt::remembered($conversation->id);
+            $state = Receipts::state($thread->id, $receipt->visitor_delivered_id, $receipt->visitor_seen_id);
+
+            $label = $state === Receipts::SEEN ? __('Seen')
+                : ($state === Receipts::DELIVERED ? __('Delivered') : __('Sent'));
+
+            if ($state === Receipts::SEEN && $receipt->visitor_seen_at && $threads instanceof \Illuminate\Support\Collection) {
+                $replies = $threads->where('type', \App\Thread::TYPE_MESSAGE)->pluck('id')->all();
+                if (Receipts::newestSeen($replies, $receipt->visitor_seen_id) == $thread->id) {
+                    $label = __('Seen at :time', ['time' => \App\User::dateFormat($receipt->visitor_seen_at, 'H:i')]);
+                }
+            }
+
+            echo \View::make('gesoftlivechat::partials/receipt', [
+                'thread' => $thread,
+                'state'  => $state,
+                'label'  => $label,
+            ])->render();
+        }, 20, 4);
 
         // Manage → Blocked chat visitors, for administrators, next to core's
         // own management pages.

@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\GesoftLiveChat\Entities\AgentPresence;
 use Modules\GesoftLiveChat\Entities\ChatBlock;
+use Modules\GesoftLiveChat\Entities\ChatReceipt;
 use Modules\GesoftLiveChat\Entities\ChatSession;
 use Modules\GesoftLiveChat\Support\Origin;
 use Modules\GesoftLiveChat\Support\Presence;
@@ -164,6 +165,8 @@ class ChatController extends Controller
         return $this->ok($request, [
             'token' => $token,
             'since' => $result['thread']->id ?? 0,
+            // The message's own id, which its receipts are addressed by.
+            'id'    => $result['thread']->id ?? 0,
         ]);
     }
 
@@ -282,7 +285,10 @@ class ChatController extends Controller
         $session->seen();
         Typing::visitorStopped($conversation->id);
 
-        return $this->ok($request, ['since' => $thread->id ?? 0]);
+        // `since` stays for bubbles loaded before `id` existed. The bubble no
+        // longer moves its poll pointer to it: an agent reply written between
+        // its last poll and this message has a smaller id, and was skipped.
+        return $this->ok($request, ['since' => $thread->id ?? 0, 'id' => $thread->id ?? 0]);
     }
 
     /**
@@ -302,6 +308,11 @@ class ChatController extends Controller
      * is. Folded into the poll rather than sent separately because the route
      * throttle counts every request, and a three-second poll already uses
      * most of it.
+     *
+     * Receipts ride on it the same way. The agents' messages this answer
+     * carries are delivered by carrying them; `seen` is the newest agent
+     * message the bubble had on screen, and `receipts` in the answer says how
+     * far the agents have got with the visitor's.
      */
     public function poll(Request $request)
     {
@@ -360,12 +371,31 @@ class ChatController extends Controller
             }
         }
 
+        $receipts = null;
+        if (ChatReceipt::enabled()) {
+            $receipt = ChatReceipt::of($conversation->id);
+
+            $newest_agent_message = $threads->where('type', Thread::TYPE_MESSAGE)->max('id');
+            if ($newest_agent_message) {
+                $receipt->visitorReceived($newest_agent_message);
+            }
+            $receipt->visitorSaw($request->input('seen'));
+
+            $show_seen = (bool) config('gesoftlivechat.receipts_seen_to_visitor');
+            $receipts = [
+                'delivered' => (int) $receipt->agent_delivered_id,
+                'seen'      => $show_seen ? (int) $receipt->agent_seen_id : 0,
+                'seen_at'   => $show_seen && $receipt->agent_seen_at ? $receipt->agent_seen_at->toIso8601String() : null,
+            ];
+        }
+
         return $this->ok($request, [
             'messages' => $messages,
             'since'    => $threads->count() ? $threads->last()->id : $since,
             'closed'   => !$open,
             'notice'   => $notice,
             'typing'   => $typing,
+            'receipts' => $receipts,
         ]);
     }
 

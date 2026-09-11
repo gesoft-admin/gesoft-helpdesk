@@ -89,6 +89,20 @@ On an agent's chat page, the three-second typing beat also names the
 visitor's newest message, and the page shows it without waiting for core's
 five-second realtime poll.
 
+Messages carry delivery receipts both ways: one tick once sent, two once the
+other side's screen fetched it, and "Seen at 10:32" on the newest message that
+was on that screen while the screen could be looked at — the bubble open in a
+visible tab, the agent's chat page visible. They ride on the bubble's poll and
+the agent's beat, so no request is added. Live Helper Chat keeps a status per
+message and can leave one stuck at delivered; this keeps one "up to message N"
+pointer per state per conversation, which only moves forward, is clamped to
+messages that exist, and leaves core's `threads` table alone.
+
+Adding them found a lost-reply bug in the bubble: a visitor message sent
+between two polls moved the poll pointer past an agent reply written in
+between, and that reply never reached the visitor. The bubble now keeps its
+pointer and puts every message in the order the server wrote it.
+
 The chat also has a page of its own, `/chat`, for a link rather than an
 embed: the same bubble, open from the start and filling the window, so a site
 needs no bubble and the helpdesk no second hostname.

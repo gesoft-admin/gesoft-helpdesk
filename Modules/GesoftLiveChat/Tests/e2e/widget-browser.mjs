@@ -95,7 +95,7 @@ async function tab(query = '', page = DEMO) {
     await waitFor(ev, `!!document.querySelector('[data-gesoft-live-chat]')`, 15000);
   };
   await go();
-  return { ev, go, close: () => send('Target.closeTarget', { targetId }) };
+  return { ev, go, S, close: () => send('Target.closeTarget', { targetId }) };
 }
 
 const mode = (t) => t.ev(`${R}.querySelector('.panel').getAttribute('data-mode')`);
@@ -139,9 +139,13 @@ async function agentSession() {
   const csrf = (home.match(/<meta name="csrf-token" content="([^"]+)"/) || [])[1];
   if (!csrf) throw new Error('the agent could not sign in');
   return {
-    typing: async (conv, on) => (await req(`/gesoft-live-chat/agent/${conv}/typing`, {
+    typing: async (conv, on, seen = 0) => (await req(`/gesoft-live-chat/agent/${conv}/typing`, {
       method: 'POST', headers: formHeaders,
-      body: new URLSearchParams({ _token: csrf, typing: on ? '1' : '0' }).toString(),
+      body: new URLSearchParams({ _token: csrf, typing: on ? '1' : '0', seen: String(seen) }).toString(),
+    })).json(),
+    chats: async () => (await req('/gesoft-live-chat/agent/chats')).json(),
+    nudge: async (conv) => (await req(`/gesoft-live-chat/agent/${conv}/nudge`, {
+      method: 'POST', headers: formHeaders, body: new URLSearchParams({ _token: csrf }).toString(),
     })).json(),
   };
 }
@@ -216,6 +220,59 @@ if (agent) {
   check('the visitor typing is told to the agent', await agentHears(true), true);
   await typeInBubble('');
   check('  and no longer once they clear the box', await agentHears(false), true);
+
+  // ------------------------------------------------------------ receipts
+  const lastMine = `(() => { const rows = ${R}.querySelectorAll('.log .row.visitor'); const r = rows[rows.length - 1];
+    return r ? { id: r.getAttribute('data-id'), pending: r.classList.contains('pending'), mark: r.querySelector('.receipt').textContent } : null; })()`;
+  const sendText = (text) => a.ev(`(() => { const t = ${R}.querySelector('.form textarea'); t.value = ${JSON.stringify(text)};
+    ${R}.querySelector('.form').dispatchEvent(new Event('submit', { cancelable: true })); return true; })()`);
+  const newestReply = () => Number(one(`select max(id) from threads where conversation_id=${convA} and type=2 and state=2`));
+  await sleep(11000);  // start the send burst window empty
+  await sendText(`Confirmare ${RUN}`);
+  await sleep(1500);
+  const storedId = one(`select max(id) from threads where conversation_id=${convA} and type=1 and body like 'Confirmare ${RUN}%'`);
+  check('receipts: a sent message gets its id and loses the pending look',
+    await waitFor(a.ev, `(() => { const m = ${lastMine}; return !!m && !m.pending && m.id === ${JSON.stringify(storedId || '')}; })()`, 8000), true);
+  await agent.chats();
+  check("  two ticks once an agent's FreeScout has it", await waitFor(a.ev, `${lastMine}.mark.startsWith('✓✓')`, 8000), true);
+  await agent.typing(convA, false, Number(storedId));
+  check('  "Văzut la …" once an agent has seen it', await waitFor(a.ev, `/^✓✓ Văzut la \\d{2}:\\d{2}$/.test(${lastMine}.mark)`, 8000), true);
+  check('  and only on the newest seen message',
+    await a.ev(`[...${R}.querySelectorAll('.log .row.visitor .receipt')].filter(e => e.textContent.includes('Văzut')).length`), 1);
+
+  await agent.nudge(convA);
+  const nudgeId = newestReply();
+  let replySeen = false;
+  for (let i = 0; i < 20 && !replySeen; i++) {
+    replySeen = (await agent.typing(convA, false)).receipts.seen === nudgeId;
+    if (!replySeen) await sleep(500);
+  }
+  check("the agent's reply counts as seen once it is in the open bubble", replySeen, true);
+
+  // Found while adding receipts: a visitor message sent between two polls
+  // moved the poll pointer past an agent reply written in between, and the
+  // reply never reached the bubble. Polls are held back while the two cross.
+  await sleep(11000);
+  await a.S('Network.enable');
+  await a.S('Network.setBlockedURLs', { urls: ['*gesoft-live-chat/poll*'] });
+  await sleep(2500);
+  await agent.nudge(convA);
+  const crossed = newestReply();
+  await sendText(`Peste raspuns ${RUN}`);
+  await waitFor(a.ev, `![...${R}.querySelectorAll('.log .row.visitor')].some(r => r.classList.contains('pending'))`, 8000);
+  await a.S('Network.setBlockedURLs', { urls: [] });
+  check('a reply written while the visitor was sending still reaches the bubble',
+    await waitFor(a.ev, `!!${R}.querySelector('.log .row.agent[data-id="${crossed}"]')`, 10000), true);
+  check('  above the message sent after it', await a.ev(`(() => {
+    const rows = [...${R}.querySelectorAll('.log .row[data-id]')];
+    const reply = rows.findIndex(r => r.getAttribute('data-id') === '${crossed}');
+    const mine = rows.findIndex(r => r.innerText.includes('Peste raspuns ${RUN}'));
+    return reply !== -1 && mine !== -1 && reply < mine;
+  })()`), true);
+  check('  and every message is on screen once', await a.ev(`(() => {
+    const ids = [...${R}.querySelectorAll('.log .row[data-id]')].map(r => r.getAttribute('data-id'));
+    return ids.length === new Set(ids).size;
+  })()`), true);
 }
 
 // ----------------------------------------------- a visitor sending too fast

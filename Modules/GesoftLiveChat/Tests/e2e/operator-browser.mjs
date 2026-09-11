@@ -293,6 +293,29 @@ const visitorSees = (await pollOnce(here)).messages.map((m) => m.body);
 check('the visitor receives both replies',
   visitorSees.includes(`Primul răspuns ${RUN}`) && visitorSees.includes(`Al doilea răspuns ${RUN}`), true);
 
+// ------------------------------------------------------------------ receipts
+// That poll fetched both replies, so both are delivered; the agent's page
+// learns it from its next beat.
+const replyIds = sql(`select id from threads where conversation_id=${here.conv} and type=2 and state=2 order by id`).map((r) => Number(r[0]));
+const newestReply = replyIds[replyIds.length - 1];
+const mark = (id) => `document.querySelector('#thread-${id} .gesoft-chat-receipt')`;
+const stateOf = (id) => `((${mark(id)} || { getAttribute: () => null }).getAttribute('data-state'))`;
+check('receipts: a reply the bubble fetched shows two ticks under it',
+  await waitFor(`${stateOf(newestReply)} === 'delivered'`, 8000), true);
+check('  and says so in words', ['✓✓ Primit', '✓✓ Delivered'].includes(await ev(`${mark(newestReply)}.innerText.replace(/\\s+/g, ' ').trim()`)), true);
+await fetch(`${BASE}/gesoft-live-chat/poll?token=${here.token}&since=${newestReply}&seen=${newestReply}`);
+check("  seen, with the time, once it was on the visitor's screen",
+  await waitFor(`${stateOf(newestReply)} === 'seen' && /(Văzut la|Seen at) \\d{1,2}:\\d{2}/.test(${mark(newestReply)}.innerText)`, 8000), true);
+check('  and the reply before it seen, without a time of its own',
+  await ev(`${stateOf(replyIds[replyIds.length - 2])} === 'seen' && !/\\d:\\d/.test(${mark(replyIds[replyIds.length - 2])}.innerText)`), true);
+const newestVisitor = Number(one(`select max(id) from threads where conversation_id=${here.conv} and type=1 and state=2`));
+let visitorToldSeen = 0;
+for (let i = 0; i < 12 && visitorToldSeen !== newestVisitor; i++) {
+  visitorToldSeen = (await pollOnce(here)).receipts.seen;
+  if (visitorToldSeen !== newestVisitor) await sleep(1000);
+}
+check("the agent's open chat page marks the visitor's messages seen", visitorToldSeen, newestVisitor);
+
 // ------------------------------------------------------------ blocking a visitor
 const blockedEmail = `e2e-op-blocat-${RUN}@gesoft.test`;
 const blocked = await visitor(`E2E de blocat ${RUN}`, `Deranjez ${RUN}`, blockedEmail);

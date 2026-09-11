@@ -59,6 +59,7 @@ Baseline: FreeScout `1.8.239`.
 | Messages rendered as `#thread-<id>` under `#conv-layout-main`, and the draft id in the reply form's `thread_id` | `resources/views/conversations/partials/thread.blade.php`, `resources/views/conversations/view.blade.php` | A sent reply does not appear without a reload, or a second reply is refused as "already sent". |
 | No undo, and so no flash message, for a chat reply in chat mode | `app/Http/Controllers/ConversationsController.php` | With no reload to consume it, an "Email sent — Undo" message would appear on the next page the agent opens. |
 | The reply form's hidden `is_note` field, and Summernote's `.note-editable` inside `.form-reply` | `resources/views/conversations/view.blade.php`, `public/js/main.js` | The visitor stops seeing that an agent is typing. The script reports nothing when it cannot find the field, so a field that moves never turns a note into dots. |
+| `thread.meta` action inside each message, and messages marked `thread-type-customer` / `thread-type-message` with `data-thread_id` | `resources/views/conversations/partials/thread.blade.php`, `app/Thread.php` | Receipts disappear from agents' chat replies, or an agent reading a chat no longer marks the visitor's messages seen. The beat then reports nothing seen, so a moved class never marks anything read by mistake. |
 
 ## Two behaviours that are contracts even though nothing enforces them
 

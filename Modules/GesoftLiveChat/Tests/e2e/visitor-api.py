@@ -122,8 +122,9 @@ def start(name, email, message, headers=None, clear=True, lang="ro", extra=None)
     return r, b, None, None
 
 
-def poll(token, since=0, headers=None, typing=None):
+def poll(token, since=0, headers=None, typing=None, seen=None):
     extra = "" if typing is None else f"&typing={typing}"
+    extra += "" if seen is None else f"&seen={urllib.parse.quote(str(seen))}"
     return body(http("GET", f"poll?token={urllib.parse.quote(token)}&since={since}{extra}", headers=headers))
 
 
@@ -431,6 +432,54 @@ if os.environ.get("GLC_AGENT_EMAIL"):
     typing(ct, True)
     close(ct)
     check("a closed chat tells the visitor nothing about typing", poll(tt).get("typing"), None)
+
+    # Receipts, both ways, riding on the poll and the beat.
+    _, br, tr, cr = start(f"E2E confirmari {RUN}", f"e2e-r-{RUN}@gesoft.test", f"Confirmare {RUN}")
+    first = br.get("id")
+    check("receipts: start names the message it stored", first,
+          int(one(f"select min(id) from threads where conversation_id={cr} and type=1")))
+    check("  a new message is only sent", poll(tr).get("receipts"), {"delivered": 0, "seen": 0, "seen_at": None})
+    page("/gesoft-live-chat/agent/chats")
+    got = poll(tr)["receipts"]
+    check("  delivered once an agent's chat list has fetched it", (got["delivered"], got["seen"]), (first, 0))
+
+    def beat(conv, seen):
+        return agent_post(f"/gesoft-live-chat/agent/{conv}/typing", {"typing": 0, "seen": seen})[1]
+
+    beat(cr, first)
+    got = poll(tr)["receipts"]
+    check("  seen once an agent's page had it on screen", got["seen"], first)
+    check("  with the time", bool(got["seen_at"]), True)
+    _, sent = send(tr, f"Al doilea {RUN}")
+    second = sent.get("id")
+    check("send names the message it stored", second,
+          int(one(f"select max(id) from threads where conversation_id={cr} and type=1")))
+    beat(cr, second + 100000)
+    check("an agent's report past the newest message moves only to it", poll(tr)["receipts"]["seen"], second)
+    beat(cr, first)
+    check("  and an older report does not move it back", poll(tr)["receipts"]["seen"], second)
+    check("  nor does nonsense", (agent_post(f"/gesoft-live-chat/agent/{cr}/typing", {"typing": 0, "seen": "abc"})[0],
+                                  poll(tr)["receipts"]["seen"]), (200, second))
+
+    agent_post(f"/gesoft-live-chat/agent/{cr}/nudge", {})
+    reply = int(one(f"select max(id) from threads where conversation_id={cr} and type=2 and state=2"))
+    check("an agent's reply is only sent before the bubble asks", beat(cr, 0).get("receipts"),
+          {"delivered": 0, "seen": 0, "seen_at": ""})
+    poll(tr, since=second)
+    got = beat(cr, 0)["receipts"]
+    check("  delivered once the bubble has fetched it", (got["delivered"], got["seen"]), (reply, 0))
+    poll(tr, since=reply, seen=reply)
+    got = beat(cr, 0)["receipts"]
+    check("  seen once the bubble had it on screen", got["seen"], reply)
+    check("  with the time, as the agent writes times", bool(re.fullmatch(r"\d{1,2}:\d{2}( [AaPp][Mm])?", got["seen_at"])), True)
+    poll(tr, since=reply, seen=reply + 100000)
+    agent_post(f"/gesoft-live-chat/agent/{cr}/nudge", {})
+    later = int(one(f"select max(id) from threads where conversation_id={cr} and type=2 and state=2"))
+    check("a visitor's report cannot mark a reply written after it", beat(cr, 0)["receipts"]["seen"], reply)
+    poll(tr, since=later, seen=second)
+    check("  nor can their own message count as a reply seen", beat(cr, 0)["receipts"]["seen"], reply)
+    check("  and nonsense is ignored", (poll(tr, since=later, seen="1 or 1=1").get("status"), beat(cr, 0)["receipts"]["seen"]), ("success", reply))
+    close(cr)
 
     block_email = f"e2e-blocat-{RUN}@gesoft.test"
     _, _, tb, cb = start(f"E2E blocat {RUN}", block_email, f"Blocat {RUN}")

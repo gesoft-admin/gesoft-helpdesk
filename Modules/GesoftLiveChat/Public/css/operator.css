@@ -171,3 +171,23 @@
 @media (prefers-reduced-motion: reduce) {
     .gesoft-typing-dots i { animation: none; opacity: .7; }
 }
+
+/*
+ * Receipts under an agent's chat replies: grey ticks until the visitor has
+ * seen the reply, green once they have.
+ */
+.gesoft-chat-receipt {
+    font-size: 11px;
+    color: #8b99a4;
+}
+
+.gesoft-receipt-ticks {
+    display: inline-block;
+    margin-right: 5px;
+    font-weight: 700;
+    letter-spacing: -3px;
+}
+
+.gesoft-chat-receipt[data-state="seen"] {
+    color: #1f8f73;
+}

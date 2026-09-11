@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\GesoftLiveChat\Entities\AgentPresence;
 use Modules\GesoftLiveChat\Entities\ChatBlock;
+use Modules\GesoftLiveChat\Entities\ChatReceipt;
 use Modules\GesoftLiveChat\Entities\ChatSession;
 use Modules\GesoftLiveChat\Support\Blocking;
 use Modules\GesoftLiveChat\Support\Presence;
@@ -158,26 +159,36 @@ class AgentController extends Controller
      * One request both ways, every three seconds, from a chat conversation's
      * page. The page decides what counts as typing, and a note never does.
      * Nothing of what either side types is sent.
+     *
+     * The same beat carries receipts. The page sends it only while it is
+     * visible, so `seen` — the newest visitor message on the page — is what
+     * the agent had in front of them; `receipts` in the answer says how far
+     * the visitor has got with the agents' replies.
      */
     public function typing(Request $request, $conversation_id)
     {
         $conversation = Conversation::findOrFail($conversation_id);
         $this->authorize('viewCached', $conversation);
 
-        if (!$conversation->isChat() || !Typing::enabled()) {
+        $receipts = ChatReceipt::enabled();
+        if (!$conversation->isChat() || !(Typing::enabled() || $receipts)) {
             return response()->json(['status' => 'success', 'visitor_typing' => false, 'latest_customer_thread_id' => 0]);
         }
 
-        $user = auth()->user();
-        if (filter_var($request->input('typing'), FILTER_VALIDATE_BOOLEAN)) {
-            Typing::agentTyping($conversation, $user);
-        } else {
-            Typing::agentStopped($conversation, $user);
+        $visitor_typing = false;
+        if (Typing::enabled()) {
+            $user = auth()->user();
+            if (filter_var($request->input('typing'), FILTER_VALIDATE_BOOLEAN)) {
+                Typing::agentTyping($conversation, $user);
+            } else {
+                Typing::agentStopped($conversation, $user);
+            }
+            $visitor_typing = Typing::isVisitorTyping($conversation);
         }
 
-        return response()->json([
+        $answer = [
             'status'         => 'success',
-            'visitor_typing' => Typing::isVisitorTyping($conversation),
+            'visitor_typing' => $visitor_typing,
             // The visitor's newest message, so the page can show it within
             // one beat instead of waiting for core's five-second realtime
             // poll. The page fetches it itself if it is not on screen.
@@ -185,7 +196,21 @@ class AgentController extends Controller
                 ->where('type', Thread::TYPE_CUSTOMER)
                 ->where('state', Thread::STATE_PUBLISHED)
                 ->max('id'),
-        ]);
+        ];
+
+        if ($receipts) {
+            $receipt = ChatReceipt::of($conversation->id);
+            $receipt->agentSaw($request->input('seen'));
+            $answer['receipts'] = [
+                'delivered' => (int) $receipt->visitor_delivered_id,
+                'seen'      => (int) $receipt->visitor_seen_id,
+                // In the agent's own timezone and clock, the way core writes
+                // every other time on the page.
+                'seen_at'   => $receipt->visitor_seen_at ? \App\User::dateFormat($receipt->visitor_seen_at, 'H:i') : '',
+            ];
+        }
+
+        return response()->json($answer);
     }
 
     /**
@@ -259,6 +284,14 @@ class AgentController extends Controller
         // Customer messages only. An agent does not need telling about their
         // own reply.
         $conversation_ids = (clone $query)->pluck('id');
+
+        // What this list shows has reached an agent: the visitor's messages in
+        // these chats are delivered, the way Live Helper Chat counts a message
+        // its back office has fetched.
+        if (ChatReceipt::enabled()) {
+            ChatReceipt::agentsReceivedAll($conversation_ids);
+        }
+
         $latest_message = \App\Thread::whereIn('conversation_id', $conversation_ids)
             ->where('type', \App\Thread::TYPE_CUSTOMER)
             ->where('state', \App\Thread::STATE_PUBLISHED)

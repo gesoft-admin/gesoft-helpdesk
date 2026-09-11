@@ -214,6 +214,18 @@ check('the placeholder goes with the first character typed, not after a pause', 
 check('More Actions offers "ask if still there" and "block visitor"',
   await ev(`!!document.querySelector('.gesoft-chat-nudge') && !!document.querySelector('.gesoft-chat-block-open')`), true);
 
+// ------------------------------------------------- the chat count, two places
+// The one this suite exists for: it once answered curl and painted nothing.
+await open(`/mailbox/${one(`select mailbox_id from conversations where id=${here.conv}`)}`);
+const shownCount = (selector) => `(() => {
+  const e = document.querySelector('${selector}');
+  return !!e && e.offsetParent !== null && Number(e.textContent) >= 1;
+})()`;
+check('the Chats folder shows how many chats are open',
+  await waitFor(shownCount('#folders .gesoft-chat-count')), true);
+check('  and so does the header, next to the bell',
+  await waitFor(shownCount('.navbar-right .gesoft-chat-header-count')), true);
+
 // -------------------------------------------- the alert opens the chat it names
 const bellBefore = one(`select count(*) from notifications`);
 await open('/');

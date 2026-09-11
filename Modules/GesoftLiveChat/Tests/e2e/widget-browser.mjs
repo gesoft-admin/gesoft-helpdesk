@@ -276,6 +276,18 @@ if (agent) {
     const ids = [...${R}.querySelectorAll('.log .row[data-id]')].map(r => r.getAttribute('data-id'));
     return ids.length === new Set(ids).size;
   })()`), true);
+
+  // The support link reaches the customer as a message, and a link they have
+  // to select and copy out of a bubble is where a support call fails. Written
+  // as a copy of the agent's last reply, so the row is one core would store.
+  const link = `http://example.invalid/d/ZVKQ4WGVFA43?e2e=${RUN}`;
+  sql(`create temporary table glc_e2e_link as select * from threads where id=${crossed};
+    update glc_e2e_link set id=0, body='Descărcați de aici: ${link}', created_at=now(), updated_at=now();
+    insert into threads select * from glc_e2e_link;`);
+  const linkIn = `[...${R}.querySelectorAll('.log .row.agent .msg a')].find(l => l.href === '${link}')`;
+  check('a link in a reply is one the customer can click', await waitFor(a.ev, `!!(${linkIn})`, 15000), true);
+  check('  opening beside the page, without handing it over',
+    await a.ev(`(() => { const l = ${linkIn}; return l ? [l.target, l.rel] : null; })()`), ['_blank', 'noopener noreferrer']);
 }
 
 // ----------------------------------------------- a visitor sending too fast

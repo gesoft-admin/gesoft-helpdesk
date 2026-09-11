@@ -15,6 +15,11 @@ separate service (`helpdesk-rust`) for a session, shows the support code and
 customer link, polls for the RustDesk ID and for whether that peer actually
 registered with our own rendezvous server, and closes the session on demand.
 
+The agent's own machine has to be let through that server's firewall too, which
+opens per address. The panel says whether the agent's address is admitted and
+until when, in red when it is not; Start admits it for the day, and "My RustDesk
+client" gives one-time links for RustDesk on another machine or network.
+
 It talks to that service over HTTP with an operator token that never leaves the
 server — no route, view or JSON response in the module emits it. See
 [`docs/architecture/remote-support.md`](docs/architecture/remote-support.md).

@@ -182,6 +182,46 @@ class HelpdeskClient
         return $reply;
     }
 
+    /**
+     * Whether an agent's address can reach our RustDesk server now.
+     *
+     *   GET /api/ops/technician-access/{ip}
+     *     -> {ip, managed, admitted, expires_at|null, grant_minutes}
+     *
+     * `$ip` is the address the agent's browser reached this server from. The
+     * backend cannot see it: its own peer is this server.
+     */
+    public function technicianAccess($ip)
+    {
+        return $this->accessReply(
+            $this->request('GET', '/api/ops/technician-access/'.rawurlencode((string) $ip))
+        );
+    }
+
+    /**
+     * Admit an agent's address to our RustDesk server, as a used link would.
+     * Same reply as `technicianAccess()`, read after the change.
+     */
+    public function grantTechnicianAccess($ip, $label)
+    {
+        return $this->accessReply(
+            $this->request('POST', '/api/ops/technician-access', ['ip' => (string) $ip, 'label' => (string) $label])
+        );
+    }
+
+    protected function accessReply($reply)
+    {
+        if (!is_array($reply) || !isset($reply['managed'], $reply['admitted'])
+            || !is_bool($reply['managed']) || !is_bool($reply['admitted'])) {
+            throw new HelpdeskException(
+                HelpdeskException::KIND_BAD_RESPONSE,
+                'technician access reply was not understood'
+            );
+        }
+
+        return $reply;
+    }
+
     // ------------------------------------------------------------------ http
 
     protected function request($method, $path, array $json = null)

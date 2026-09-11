@@ -93,7 +93,7 @@ class GesoftRemoteSupportController extends Controller
             }
 
             if (!$claimed) {
-                return $this->success($session);
+                return $this->success($session, ['access' => $this->access($request, $client, true)]);
             }
         }
 
@@ -139,7 +139,11 @@ class GesoftRemoteSupportController extends Controller
         // it did before.
         \Eventy::action('gesoft.remote_support.started', $conversation, $session, $user);
 
-        return $this->success($session);
+        // The agent is about to connect, so their own address is renewed now.
+        // An agent whose RustDesk was already open had no reason to fetch a
+        // link, and an address never admitted cannot reach the server — the
+        // failure this answers.
+        return $this->success($session, ['access' => $this->access($request, $client, true)]);
     }
 
     /**
@@ -275,7 +279,7 @@ class GesoftRemoteSupportController extends Controller
         $base = rtrim($base, '/');
 
         try {
-            $link = $client->createTechnicianLink('FreeScout user '.$user->id.' ('.$user->getFullName().')');
+            $link = $client->createTechnicianLink($this->agentLabel($user));
         } catch (HelpdeskException $e) {
             return response()->json(['status' => 'error', 'msg' => $e->userMessage()]);
         }
@@ -294,7 +298,118 @@ class GesoftRemoteSupportController extends Controller
         ]);
     }
 
+    /**
+     * Whether this agent's machine can reach our RustDesk server, for the
+     * panel's access line. GET reads, POST admits.
+     *
+     * The address is the one this request came from: the agent's browser. On
+     * production Caddy hands PHP the connection directly and only loopback is
+     * a trusted proxy, so it cannot be set by a header.
+     */
+    public function technicianAccess(Request $request, $conversation_id)
+    {
+        $this->authorized($conversation_id);
+
+        return response()->json([
+            'status' => 'success',
+            'msg'    => '',
+            'access' => $this->access($request, new HelpdeskClient(), $request->isMethod('post')),
+        ]);
+    }
+
     // ------------------------------------------------------------- internals
+
+    /** How the backend's audit trail names the agent. */
+    protected function agentLabel($user)
+    {
+        return 'FreeScout user '.$user->id.' ('.$user->getFullName().')';
+    }
+
+    /**
+     * The access line: a level the panel colours by, a sentence, and whether
+     * to offer the button that admits this address.
+     *
+     *   ok        admitted, for an hour or more
+     *   soon      admitted, ending within the hour
+     *   none      not admitted — the agent's RustDesk cannot connect
+     *   unknown   the backend could not be asked
+     *   unmanaged the backend does not run the firewall; nothing to show
+     *
+     * Never throws: a start that worked must not fail over its access line.
+     */
+    protected function access(Request $request, HelpdeskClient $client, $grant)
+    {
+        $ip = (string) $request->ip();
+        $state = ['level' => 'unknown', 'ip' => $ip, 'message' => '', 'can_grant' => false, 'other_machine' => false];
+
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            // The operator set is IPv4. helpdesk.gesoft.ro has no AAAA record,
+            // so this is a test bench or a changed DNS, not an agent's office.
+            $state['level'] = 'none';
+            $state['message'] = __('Our RustDesk server can only admit IPv4 addresses, and this browser reaches the helpdesk from :ip.', ['ip' => $ip]);
+            $state['other_machine'] = true;
+
+            return $state;
+        }
+
+        if (!$client->isConfigured()) {
+            $state['message'] = __('Remote Support is not configured on this server.');
+
+            return $state;
+        }
+
+        try {
+            $reply = $grant
+                ? $client->grantTechnicianAccess($ip, $this->agentLabel(auth()->user()))
+                : $client->technicianAccess($ip);
+        } catch (HelpdeskException $e) {
+            $state['message'] = __('Access to our RustDesk server could not be checked.');
+            $state['can_grant'] = true;
+
+            return $state;
+        }
+
+        if (!$reply['managed']) {
+            $state['level'] = 'unmanaged';
+
+            return $state;
+        }
+
+        $expires = !empty($reply['expires_at']) ? $this->parseTime($reply['expires_at']) : null;
+
+        if (!$reply['admitted'] || !$expires) {
+            $state['level'] = 'none';
+            $state['message'] = $grant
+                ? __('Access to our RustDesk server could not be opened for :ip.', ['ip' => $ip])
+                : __('No access to our RustDesk server from :ip: your RustDesk client cannot connect to customers.', ['ip' => $ip]);
+            $state['can_grant'] = true;
+            $state['other_machine'] = true;
+
+            if ($grant) {
+                \Log::error(self::LOG_PREFIX.': the backend did not admit agent '.auth()->user()->id.' at '.$ip);
+            }
+
+            return $state;
+        }
+
+        if ($grant) {
+            \Log::info(self::LOG_PREFIX.': agent '.auth()->user()->id.' admitted at '.$ip);
+        }
+
+        $today = \App\User::dateFormat(now(), 'Y-m-d', null, false);
+        $until = \App\User::dateFormat($expires, \App\User::dateFormat($expires, 'Y-m-d', null, false) === $today ? 'H:i' : 'M j, H:i');
+
+        if ($expires->diffInMinutes(now()) < 60) {
+            $state['level'] = 'soon';
+            $state['message'] = __('Access to our RustDesk server from :ip ends at :time.', ['ip' => $ip, 'time' => $until]);
+            $state['can_grant'] = true;
+        } else {
+            $state['level'] = 'ok';
+            $state['message'] = __('Access to our RustDesk server from :ip until :time.', ['ip' => $ip, 'time' => $until]);
+        }
+
+        return $state;
+    }
 
     /**
      * Take the conversation's start slot, or report that somebody else has it.
@@ -443,13 +558,13 @@ class GesoftRemoteSupportController extends Controller
         }
     }
 
-    protected function success(RemoteSession $session)
+    protected function success(RemoteSession $session, array $extra = [])
     {
-        return response()->json([
+        return response()->json(array_merge([
             'status' => 'success',
             'msg'    => '',
             'state'  => $session->toState(),
-        ]);
+        ], $extra));
     }
 
     /**

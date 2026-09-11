@@ -34,4 +34,11 @@ Route::group([
         'uses'    => 'GesoftRemoteSupportController@technician',
         'laroute' => true,
     ])->name('gesoftremotesupport.technician');
+
+    // Whether the agent's own address can reach our RustDesk server: GET
+    // reads it, POST admits it. The panel shows the answer above Start.
+    Route::match(['get', 'post'], '/gesoft-remote-support/{conversation_id}/access', [
+        'uses'    => 'GesoftRemoteSupportController@technicianAccess',
+        'laroute' => true,
+    ])->name('gesoftremotesupport.access');
 });

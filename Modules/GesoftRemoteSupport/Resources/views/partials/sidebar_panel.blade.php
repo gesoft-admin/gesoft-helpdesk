@@ -14,13 +14,28 @@
      data-url-start="{{ route('gesoftremotesupport.start', ['conversation_id' => $conversation->id]) }}"
      data-url-close="{{ route('gesoftremotesupport.close', ['conversation_id' => $conversation->id]) }}"
      data-url-status="{{ route('gesoftremotesupport.status', ['conversation_id' => $conversation->id]) }}"
-     data-url-technician="{{ route('gesoftremotesupport.technician', ['conversation_id' => $conversation->id]) }}">
+     data-url-technician="{{ route('gesoftremotesupport.technician', ['conversation_id' => $conversation->id]) }}"
+     data-url-access="{{ route('gesoftremotesupport.access', ['conversation_id' => $conversation->id]) }}">
 
     <div class="sidebar-block-header2">
         <strong>{{ __('Gesoft Remote Support') }}</strong>
     </div>
 
     <div class="gesoft-rs-body">
+        {{--
+            Whether the agent's own machine can reach our RustDesk server. The
+            firewall opens per address, so an agent whose address was never
+            admitted cannot connect to anyone, and nothing else on screen would
+            say so. Filled in by module.js; Start renews it.
+        --}}
+        <div class="gesoft-rs-access" style="display:none">
+            <div class="gesoft-rs-access-msg"></div>
+            <div class="gesoft-rs-access-other text-help" style="display:none">{{ __('RustDesk on another computer or network? Use "My RustDesk client" below, from that computer.') }}</div>
+            <button type="button" class="btn btn-default btn-xs gesoft-rs-access-grant" style="display:none"
+                    data-label-open="{{ __('Open access from this computer') }}"
+                    data-label-extend="{{ __('Extend access') }}"></button>
+        </div>
+
         <ul class="sidebar-block-list gesoft-rs-list">
             <li>
                 <span class="gesoft-rs-key">{{ __('Status') }}</span>

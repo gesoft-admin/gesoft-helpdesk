@@ -19,8 +19,13 @@
     // not, and polling it forever helps nobody.
     var MAX_POLL_FAILURES = 3;
 
+    // Access is renewed for hours at a time, so a check every few minutes is
+    // enough to notice it running out while a conversation stays open.
+    var ACCESS_MS = 120000;
+
     var timer = null;
     var failures = 0;
+    var accessBusy = false;
 
     // Messages this file writes itself, in the agent's interface language as
     // core rendered it. Everything else in the panel is translated server-side.
@@ -123,6 +128,9 @@
             if (response && response.state) {
                 applyState(response.state);
             }
+            if (response && response.access) {
+                applyAccess(response.access);
+            }
 
             if (response && response.status === 'success') {
                 msg.removeClass('text-danger').text('');
@@ -205,6 +213,61 @@
             timer = null;
         }
     }
+
+    // The access line. Green while admitted, amber when it ends within the
+    // hour or could not be checked, red when the agent's address is not
+    // admitted — the one state in which their RustDesk cannot connect at all.
+    function applyAccess(access) {
+        var box = panel().find('.gesoft-rs-access'),
+            button = box.find('.gesoft-rs-access-grant'),
+            level = access && access.level;
+
+        box.removeClass('alert alert-success alert-warning alert-danger');
+        if (!level || level === 'unmanaged') {
+            box.hide();
+            return;
+        }
+
+        box.addClass('alert ' + ({ ok: 'alert-success', soon: 'alert-warning', unknown: 'alert-warning' }[level] || 'alert-danger'));
+        box.find('.gesoft-rs-access-msg').text(access.message || '');
+        box.find('.gesoft-rs-access-other').toggle(!!access.other_machine);
+        button.text(level === 'soon' ? button.data('label-extend') : button.data('label-open'))
+            .prop('disabled', false)
+            .toggle(!!access.can_grant);
+        box.show();
+    }
+
+    function checkAccess(grant) {
+        var p = panel();
+        if (!p.length || !p.data('url-access') || accessBusy) {
+            return;
+        }
+        accessBusy = true;
+        p.find('.gesoft-rs-access-grant').prop('disabled', true);
+
+        $.ajax({
+            url: p.data('url-access'),
+            type: grant ? 'POST' : 'GET',
+            dataType: 'json',
+            data: grant ? { _token: csrfToken() } : {}
+        }).done(function (r) {
+            if (r && r.access) {
+                applyAccess(r.access);
+            }
+        }).fail(function (xhr) {
+            applyAccess({
+                level: 'unknown',
+                message: xhr.status === 419 ? T.expired : T.failed.replace('{status}', xhr.status),
+                can_grant: xhr.status !== 419
+            });
+        }).always(function () {
+            accessBusy = false;
+        });
+    }
+
+    $(document).on('click', '.gesoft-rs-access-grant', function () {
+        checkAccess(true);
+    });
 
     $(document).on('click', '.gesoft-rs-start', function () {
         call(panel().data('url-start'), 'POST');
@@ -311,6 +374,20 @@
     $(function () {
         if (!panel().find('.gesoft-rs-close').prop('disabled')) {
             startPolling();
+        }
+
+        if (panel().length) {
+            checkAccess(false);
+            setInterval(function () {
+                if (!document.hidden) {
+                    checkAccess(false);
+                }
+            }, ACCESS_MS);
+            document.addEventListener('visibilitychange', function () {
+                if (!document.hidden) {
+                    checkAccess(false);
+                }
+            });
         }
     });
 })(jQuery);

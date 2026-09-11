@@ -199,6 +199,13 @@
     overflow-anchor: none;
 }
 
+/* Room between the newest message and the editor, clear of the editor's
+   shadow. The first item of the reversed pane is the one at the bottom. */
+#conv-layout-main:has(> .gesoft-chat-layout)::before {
+    content: '';
+    flex: 0 0 16px;
+}
+
 /* Beside the customer panel, the pane stops where the panel starts, so its
    scrollbar is not underneath it; core leaves room with padding instead. */
 @media (min-width: 1101px) {

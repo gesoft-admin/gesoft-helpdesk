@@ -144,6 +144,9 @@ const layout = () => ev(`(() => {
 })()`);
 const settle = () => sleep(400);
 const near = (n, to = 0) => n !== null && Math.abs(n - to) <= 2;
+// Room between the newest message and the editor: clear of the editor's
+// shadow, and no more than a line's worth.
+const clear = (gap) => gap !== null && gap >= 12 && gap <= 24;
 
 console.log('GesoftLiveChat — the agent side in a browser\n');
 
@@ -189,7 +192,7 @@ await settle();
 let shape = await layout();
 check('in Chat Mode a short chat has the editor at the bottom of the window',
   [shape.composer, shape.short, near(shape.editorGap)], [true, true, true]);
-check('  and its newest message just above the editor', near(shape.newestGap), true);
+check('  and its newest message just above the editor, clear of it', clear(shape.newestGap), true);
 
 // Reported on 2026-09-11: the first characters typed were drawn over the
 // placeholder. Core's editor hides it on a change event debounced by 100 ms,
@@ -300,7 +303,7 @@ check('the chat is open in chat mode, with an empty reply',
 shape = await layout();
 check('in Chat Mode the reply editor is under the messages, not above them', [shape.composer, shape.inHeader], [true, false]);
 check('  the messages read oldest at the top, newest at the bottom', shape.newestLowest, true);
-check('  and open at the newest message, just above the editor', [near(shape.fromBottom), near(shape.newestGap)], [true, true]);
+check('  and open at the newest message, just above the editor, clear of it', [near(shape.fromBottom), clear(shape.newestGap)], [true, true]);
 
 await ev(`window.__gesoftStay = 'still here'; true`);
 const sendState = () => ev(`({

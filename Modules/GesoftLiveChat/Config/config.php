@@ -221,10 +221,11 @@ return [
     'receipts_seen_to_visitor' => env('GESOFT_LIVE_CHAT_RECEIPTS_SEEN_TO_VISITOR', false),
 
     /**
-     * Whether a chat reads like a chat for the agent in Chat Mode: the oldest
-     * message at the top, the newest at the bottom, and the reply editor under
-     * it, kept in view while the agent scrolls back. Off: FreeScout's own
-     * layout, the editor above the messages and the newest first.
+     * Whether a chat reads like a chat window for the agent in Chat Mode: the
+     * reply editor fixed at the bottom of the window, and the messages above it
+     * in a pane of their own, oldest at the top and newest just above the
+     * editor. Off: FreeScout's own layout, the editor above the messages and
+     * the newest first.
      *
      * Core's layout suits email, where a thread is long and the newest message
      * is the one to read. A chat is read in order, and support chat consoles

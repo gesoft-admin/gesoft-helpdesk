@@ -114,6 +114,37 @@ async function open(path) {
   await waitFor(`document.readyState === 'complete'`, 20000);
 }
 
+// Where a chat page in Chat Mode draws things: the messages' own pane, the
+// editor under it, and the "New messages" button. The list keeps core's order,
+// newest first, and is turned around on screen, so what is checked is where
+// things are drawn. The pane counts its scroll from the bottom: 0 is newest.
+const layout = () => ev(`(() => {
+  const pane = document.getElementById('conv-layout-main');
+  const composer = document.querySelector('#conv-layout > .conv-action-wrapper.gesoft-chat-composer');
+  const threads = pane ? [...pane.querySelectorAll(':scope > .thread')] : [];
+  const tops = threads.map(t => t.getBoundingClientRect().top);
+  const paneTop = pane ? pane.getBoundingClientRect().top : 0;
+  const shown = threads.filter(t => t.getBoundingClientRect().bottom > paneTop + 1);
+  const reading = shown[shown.length - 1];
+  const newer = document.querySelector('.gesoft-chat-newer');
+  return {
+    composer: !!composer,
+    inHeader: !!document.querySelector('#conv-layout-header .conv-action-wrapper'),
+    newestLowest: tops.length > 1 && tops.every((top, i) => i === 0 || top < tops[i - 1]),
+    short: !!pane && pane.scrollHeight <= pane.clientHeight,
+    scrollable: !!pane && pane.scrollHeight > pane.clientHeight + 100,
+    fromBottom: pane ? Math.round(Math.abs(pane.scrollTop)) : null,
+    pageTop: Math.round(document.scrollingElement.scrollTop),
+    editorGap: composer ? Math.round(innerHeight - composer.getBoundingClientRect().bottom) : null,
+    newestGap: composer && threads.length ? Math.round(composer.getBoundingClientRect().top - threads[0].getBoundingClientRect().bottom) : null,
+    readingId: reading ? reading.id : null,
+    readingTop: reading ? Math.round(reading.getBoundingClientRect().top) : null,
+    newer: !!newer && !newer.hidden,
+  };
+})()`);
+const settle = () => sleep(400);
+const near = (n, to = 0) => n !== null && Math.abs(n - to) <= 2;
+
 console.log('GesoftLiveChat — the agent side in a browser\n');
 
 // ------------------------------------------------------------------ sign in
@@ -151,6 +182,14 @@ check('  and the mark is explained in words on hover, in the agent\'s language',
 const lineText = await ev(`[...document.querySelectorAll('.thread-type-lineitem .thread-title')].map(e => e.innerText.trim()).join(' | ')`);
 check('the conversation shows the "ended the chat" line', /ended the chat|a încheiat chatul/.test(lineText), true);
 check('  signed with the customer, not "System"', lineText.includes(`E2E plecat ${RUN}`) && !/System/.test(lineText), true);
+// A short chat, which is what showed the first version wrong: the page
+// scrolled instead of the messages, so the editor sat under the last message
+// and moved down the screen with every new one.
+await settle();
+let shape = await layout();
+check('in Chat Mode a short chat has the editor at the bottom of the window',
+  [shape.composer, shape.short, near(shape.editorGap)], [true, true, true]);
+check('  and its newest message just above the editor', near(shape.newestGap), true);
 check('More Actions offers "ask if still there" and "block visitor"',
   await ev(`!!document.querySelector('.gesoft-chat-nudge') && !!document.querySelector('.gesoft-chat-block-open')`), true);
 
@@ -240,31 +279,10 @@ check('the chat is open in chat mode, with an empty reply',
   await ev(`document.body.classList.contains('chat-mode') && !$(".form-reply:first :input[name='is_note']").val() && !$('#body').val()`), true);
 
 // ---------------------------------------------- a chat reads like a chat
-// In Chat Mode the newest message is at the bottom and the editor under it.
-// The list keeps core's order, newest first, and is turned around on screen,
-// so what is checked is where things are drawn.
-const layout = () => ev(`(() => {
-  const root = document.scrollingElement;
-  const composer = document.querySelector('#conv-layout > .conv-action-wrapper.gesoft-chat-composer');
-  const tops = [...document.querySelectorAll('#conv-layout-main > .thread')].map(t => t.getBoundingClientRect().top);
-  const newer = document.querySelector('.gesoft-chat-newer');
-  return {
-    composer: !!composer,
-    inHeader: !!document.querySelector('#conv-layout-header .conv-action-wrapper'),
-    messages: tops.length,
-    newestLowest: tops.length > 1 && tops.every((top, i) => i === 0 || top < tops[i - 1]),
-    fromBottom: Math.round(root.scrollHeight - root.scrollTop - innerHeight),
-    top: Math.round(root.scrollTop),
-    editorGap: composer ? Math.round(innerHeight - composer.getBoundingClientRect().bottom) : null,
-    newer: !!newer && !newer.hidden,
-  };
-})()`);
-let shape = await layout();
+shape = await layout();
 check('in Chat Mode the reply editor is under the messages, not above them', [shape.composer, shape.inHeader], [true, false]);
 check('  the messages read oldest at the top, newest at the bottom', shape.newestLowest, true);
-check('  and the page opens at the newest message', await waitFor(`document.scrollingElement.scrollHeight - document.scrollingElement.scrollTop - innerHeight <= 2`, 5000), true);
-const scrollBy = (top) => ev(`(() => { document.scrollingElement.scrollTop = ${top}; return true; })()`);
-const settle = () => sleep(400);
+check('  and open at the newest message, just above the editor', [near(shape.fromBottom), near(shape.newestGap)], [true, true]);
 
 await ev(`window.__gesoftStay = 'still here'; true`);
 const sendState = () => ev(`({
@@ -309,7 +327,7 @@ check('  and appears below the first', await waitFor(`(() => {
   return second !== null && first !== null && second > first;
 })()`, 10000), true);
 check('  still without a reload', await ev(`window.__gesoftStay || null`), 'still here');
-check("  and the page follows the agent's reply down", await waitFor(`document.scrollingElement.scrollHeight - document.scrollingElement.scrollTop - innerHeight <= 2`, 5000), true);
+check("  and the chat follows the agent's reply down", await waitFor(`Math.abs(document.getElementById('conv-layout-main').scrollTop) <= 2`, 5000), true);
 check('the status shown is the one the server set',
   await waitFor(`convGetStatus() === ${Number(one(`select status from conversations where id=${here.conv}`))}`, 5000), true);
 // The other direction: a visitor's message reaches the agent's chat page
@@ -320,28 +338,27 @@ const arrived = await waitFor(onScreen(`Vizitatorul revine ${RUN}`), 6000);
 check("a visitor's message appears on the agent's chat page within 4 s", arrived && Date.now() - t0 <= 4500, true);
 check('  still without a reload', await ev(`window.__gesoftStay || null`), 'still here');
 await settle();
-check('  at the bottom of the page, which stays at the newest message', (await layout()).fromBottom <= 2, true);
-
-// Reading further up: the editor stays in view, and a new message is announced
-// rather than pulling the page down. A shorter window so the chat is sure to be
-// taller than it.
-await S('Emulation.setDeviceMetricsOverride', { width: 1400, height: 600, deviceScaleFactor: 1, mobile: false });
-await settle();
-await scrollBy(0);
-await settle();
 shape = await layout();
-check('scrolled back to the start of the chat, the editor is still in view', [shape.top, shape.editorGap >= 0 && shape.editorGap <= 16], [0, true]);
+check('  just above the editor, and the page itself has not moved', [near(shape.fromBottom), shape.pageTop], [true, 0]);
+
+// Reading further up: the editor stays where it is, and a new message is
+// announced rather than moving what the agent is reading.
+await ev(`(() => { const p = document.getElementById('conv-layout-main'); p.scrollTop = -p.scrollHeight; return true; })()`);
+await settle();
+const reading = await layout();
+check('scrolled back to the start of a long chat, the editor stays at the bottom',
+  [reading.scrollable, reading.fromBottom > 100, near(reading.editorGap)], [true, true, true]);
 await say(here, `Mesaj cât citește mai sus ${RUN}`);
 await waitFor(onScreen(`Mesaj cât citește mai sus ${RUN}`), 6000);
 await settle();
 shape = await layout();
-check('  a message arriving then leaves the page where it is', shape.top, 0);
+check('  a message arriving then leaves what the agent reads where it was',
+  [shape.readingId === reading.readingId, near(shape.readingTop, reading.readingTop)], [true, true]);
 check('  and says there are new messages', shape.newer, true);
 await ev(`(document.querySelector('.gesoft-chat-newer') || { click() {} }).click(); true`);
 await settle();
 shape = await layout();
-check('  which goes to the newest message', [shape.fromBottom <= 2, shape.newer], [true, false]);
-await S('Emulation.setDeviceMetricsOverride', { width: 1400, height: 900, deviceScaleFactor: 1, mobile: false });
+check('  which goes to the newest message', [near(shape.fromBottom), shape.newer], [true, false]);
 
 const visitorSees = (await pollOnce(here)).messages.map((m) => m.body);
 check('the visitor receives both replies',

@@ -173,27 +173,58 @@
 }
 
 /*
- * A chat in Chat Mode, read like a chat: the oldest message at the top, the
- * newest at the bottom, and the reply editor under them.
+ * A chat in Chat Mode, read like a chat window: the oldest message at the top,
+ * the newest at the bottom just above the editor, and the editor fixed at the
+ * bottom of the window. The messages scroll in a pane of their own, which
+ * operator.js sizes to what the window leaves.
  *
  * The messages are turned around on screen only. Core, and this module, go on
  * putting a new message first in the list, where core's realtime handler puts
  * it, and the reversed column shows it last. That is why this is CSS keyed on
  * the server's mark rather than something a script does after the page shows:
  * the order is right from the first paint, and nothing in core has to change.
+ * A reversed pane also starts at its bottom, at the newest message.
+ *
+ * The height here is only a first guess until the script measures.
  */
 #conv-layout-main:has(> .gesoft-chat-layout) {
     display: flex;
     flex-direction: column-reverse;
+    height: calc(100vh - 440px);
+    min-height: 240px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* operator.js keeps the agent's place when a message arrives; the
+       browser's own anchoring would move the pane a second time. */
+    overflow-anchor: none;
 }
 
-/* Nothing below can stay in view while core's `#app { overflow: hidden }`
+/* Beside the customer panel, the pane stops where the panel starts, so its
+   scrollbar is not underneath it; core leaves room with padding instead. */
+@media (min-width: 1101px) {
+    #conv-layout-main:has(> .gesoft-chat-layout) {
+        float: none;
+        clear: both;
+        width: auto;
+        margin-right: 280px;
+        padding-right: 0;
+    }
+}
+
+/* On a screen too small for the pane and the editor, the page scrolls too,
+   and nothing below can stay in view while core's `#app { overflow: hidden }`
    makes #app, which never scrolls, the box they would stay in view of.
    `clip` cuts off the same overflow without being a scroll box, and
    `flow-root` keeps the floats contained as `hidden` did. */
 #app:has(.gesoft-chat-layout) {
     overflow: clip;
     display: flow-root;
+}
+
+/* Core stretches the page to a tall customer panel; here the panel scrolls
+   in its own box instead. */
+#conv-layout:has(.gesoft-chat-layout) {
+    min-height: 0 !important;
 }
 
 /* Core drops the line under the last message in the list, which is now the
@@ -207,9 +238,8 @@
     margin: 10px 20px;
 }
 
-/* The editor, moved under the messages by operator.js, stays in view while
-   the agent scrolls back through the chat. Clear of the customer sidebar,
-   which is beside it on a wide screen. */
+/* The editor, moved under the messages by operator.js. Clear of the customer
+   panel, which is beside it on a wide screen. */
 #conv-layout > .gesoft-chat-composer {
     clear: both;
     position: sticky;
@@ -228,20 +258,17 @@
     }
 }
 
-/* The page opens at the newest message, so what an agent needs from the top
-   comes along: the chat list on the left, which core already sizes to the
-   window, and the customer panel with Start Remote Support on the right. */
+/* Only where the page itself has to scroll, on a small screen: the chat list
+   on the left, which core already sizes to the window, comes along. */
 .layout-2col:has(.gesoft-chat-layout) > .sidebar-2col {
     position: sticky;
     top: 0;
     align-self: flex-start;
 }
 
-@media (min-width: 1100px) {
+@media (min-width: 1101px) {
     #conv-layout-customer > .gesoft-chat-aside {
-        position: sticky;
-        top: 0;
-        max-height: 100vh;
+        max-height: 100%;
         overflow-y: auto;
     }
 }

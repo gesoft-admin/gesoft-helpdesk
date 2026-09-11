@@ -535,9 +535,13 @@
         });
     }
 
-    // A chat in Chat Mode, read like a chat: the editor under the messages,
-    // which operator.css has already turned around on the server's mark, and
-    // the page kept at the newest message the way a chat window is.
+    // A chat in Chat Mode, read like a chat window: the editor fixed at the
+    // bottom of the window, and the messages above it in a pane of their own,
+    // where a new one appears just above the editor and the rest move up.
+    // operator.css has already turned the messages around on the server's mark.
+    //
+    // The page scrolling instead, as it first did, leaves the editor under the
+    // last message of a short chat, moving down the screen with every new one.
     //
     // This runs before core's own start-up shows the editor, which core keeps
     // hidden until then, so the editor is never seen above the messages first.
@@ -560,9 +564,8 @@
         var newer = $('<button type="button" class="gesoft-chat-newer" hidden></button>').text(T.newer + ' ↓');
         editor.addClass('gesoft-chat-composer').prepend(newer).insertAfter('#conv-layout-main');
 
-        // The customer panel, with Start Remote Support, would otherwise stay
-        // at the top of a page that now opens at the bottom. Its contents
-        // follow the page instead; the panel itself keeps core's position.
+        // The customer panel, with Start Remote Support, scrolls in its own
+        // box beside the messages when it is taller than the window.
         $('#conv-layout-customer').wrapInner('<div class="gesoft-chat-aside"></div>');
 
         // Core binds "switch to a note" inside the subject block on its own
@@ -573,46 +576,73 @@
             switchToNote();
         });
 
-        // Not window.scrollTo: main.js declares a global scrollTo(el, …) of its
-        // own, which takes that name's place.
-        var root = document.scrollingElement || document.documentElement,
-            main = document.getElementById('conv-layout-main'),
-            atBottom = true;
+        var main = document.getElementById('conv-layout-main'),
+            composer = editor[0],
+            atBottom = true,
+            height = main.scrollHeight;
 
+        // The messages' pane takes what the window leaves between the top of
+        // the pane and the editor, so the editor ends at the bottom of the
+        // window. Never less than a few messages' worth; on a small screen
+        // the page scrolls as well, and the editor stays in view there too.
+        function fit() {
+            var top = main.getBoundingClientRect().top + window.pageYOffset;
+            main.style.height = Math.max(Math.floor(window.innerHeight - top - composer.offsetHeight), 240) + 'px';
+        }
+
+        // A reversed pane counts its scroll from the bottom: 0 is the newest
+        // message, and reading further up is negative.
         function toBottom() {
-            root.scrollTop = root.scrollHeight;
+            main.scrollTop = 0;
             atBottom = true;
             newer.prop('hidden', true);
         }
 
-        $(window).on('scroll', function () {
-            atBottom = root.scrollHeight - window.scrollY - window.innerHeight < 60;
+        // New content arrives at the bottom. At the bottom the pane shows it
+        // by itself. Further up, reading, the agent stays on what they were
+        // reading — the browser's own anchoring is switched off in the CSS so
+        // that this is the only thing that moves the pane — and a message is
+        // announced rather than scrolled to.
+        function grown(announce) {
+            var by = main.scrollHeight - height;
+            height = main.scrollHeight;
+            if (atBottom) { main.scrollTop = 0; return; }
+            if (by) { main.scrollTop -= by; }
+            if (announce) { newer.prop('hidden', false); }
+        }
+
+        main.addEventListener('scroll', function () {
+            atBottom = Math.abs(main.scrollTop) < 40;
+            height = main.scrollHeight;
             if (atBottom) { newer.prop('hidden', true); }
         });
         newer.on('click', toBottom);
 
-        // At the bottom, the page stays there as the chat grows: a message, the
-        // typing line, a picture that finished loading, a longer reply.
-        if (window.ResizeObserver) {
-            var resized = new ResizeObserver(function () { if (atBottom) { toBottom(); } });
-            resized.observe(main);
-            resized.observe(editor[0]);
-        }
-
-        // Further up, reading, the agent is told a message arrived rather than
-        // pulled away from what they are reading.
         if (window.MutationObserver) {
             new MutationObserver(function (changes) {
-                if (atBottom) { return; }
-                for (var i = 0; i < changes.length; i++) {
+                var message = false;
+                for (var i = 0; i < changes.length && !message; i++) {
                     for (var j = 0; j < changes[i].addedNodes.length; j++) {
-                        if ($(changes[i].addedNodes[j]).is('.thread')) { newer.prop('hidden', false); return; }
+                        if ($(changes[i].addedNodes[j]).is('.thread')) { message = true; break; }
                     }
                 }
-            }).observe(main, { childList: true });
+                grown(message);
+            }).observe(main, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
         }
+        // A picture in a message changes the height when it loads.
+        main.addEventListener('load', function () { grown(false); }, true);
+
+        // The editor grows with a long reply, a note's extra fields or an
+        // attachment; the header with "Show Details"; the window is resized.
+        if (window.ResizeObserver) {
+            var resized = new ResizeObserver(fit);
+            resized.observe(composer);
+            resized.observe(document.getElementById('conv-layout-header'));
+        }
+        $(window).on('resize', fit);
 
         chatLayout = { toBottom: toBottom };
+        fit();
         toBottom();
     }
 

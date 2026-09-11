@@ -305,7 +305,7 @@ $contract = [
         'what'  => 'module scripts load before the page\'s own start-up, beside a sidebar column',
         'file'  => 'resources/views/layouts/app.blade.php',
         'needs' => ["\\Eventy::filter('javascripts'", "@yield('javascript')", '<div class="layout-2col">', '<div class="sidebar-2col">'],
-        'cost'  => 'The chat list no longer follows a chat page that opens at the newest message, or the editor is shown above the messages before it moves.',
+        'cost'  => 'The editor is shown above the messages before it moves, or on a small screen the chat list no longer comes along as the page scrolls.',
     ],
 ];
 

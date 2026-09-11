@@ -381,11 +381,11 @@ class ChatController extends Controller
             }
             $receipt->visitorSaw($request->input('seen'));
 
+            // No time: when an agent read the visitor's message is for agents.
             $show_seen = (bool) config('gesoftlivechat.receipts_seen_to_visitor');
             $receipts = [
                 'delivered' => (int) $receipt->agent_delivered_id,
                 'seen'      => $show_seen ? (int) $receipt->agent_seen_id : 0,
-                'seen_at'   => $show_seen && $receipt->agent_seen_at ? $receipt->agent_seen_at->toIso8601String() : null,
             ];
         }
 

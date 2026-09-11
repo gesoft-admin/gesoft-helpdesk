@@ -71,7 +71,6 @@
             sent: 'Trimis',
             delivered: 'Primit',
             seen: 'Văzut',
-            seenAt: 'Văzut la {time}',
             errEmpty: 'Scrieți mai întâi un mesaj.',
             errEmail: 'Lăsați o adresă de email ca să vă putem răspunde.',
             errTooMany: 'Ați pornit prea multe conversații. Încercați din nou peste câteva minute.',
@@ -117,7 +116,6 @@
             sent: 'Sent',
             delivered: 'Delivered',
             seen: 'Seen',
-            seenAt: 'Seen at {time}',
             errEmpty: 'Please write a message first.',
             errEmail: 'Please leave an email address so we can answer you.',
             errTooMany: 'You have started too many conversations. Please try again in a few minutes.',
@@ -571,18 +569,12 @@
         return null;
     }
 
-    // One tick once sent, two once an agent's screen fetched it, "Seen" once
-    // it was in front of an agent — the newest seen message with the time,
-    // the ones before it with the ticks alone.
+    // Ticks only: one once sent, two once an agent's screen fetched it. The
+    // visitor is never shown words or a time for it; those are for the agent.
     function paintReceipts() {
-        var rows = log.querySelectorAll('.row.visitor[data-id]'), newest = 0, i, id;
+        var rows = log.querySelectorAll('.row.visitor[data-id]');
 
-        for (i = 0; i < rows.length; i++) {
-            id = parseInt(rows[i].getAttribute('data-id'), 10) || 0;
-            if (receipts && id <= receipts.seen && id > newest) { newest = id; }
-        }
-
-        for (i = 0; i < rows.length; i++) {
+        for (var i = 0; i < rows.length; i++) {
             var mark = rows[i].querySelector('.receipt');
             if (!mark) { continue; }
             if (!receipts) {
@@ -590,15 +582,12 @@
                 continue;
             }
 
-            id = parseInt(rows[i].getAttribute('data-id'), 10) || 0;
-            var state = id <= receipts.seen ? 'seen'
-                : id <= Math.max(receipts.delivered, receipts.seen) ? 'delivered' : 'sent';
+            var id = parseInt(rows[i].getAttribute('data-id'), 10) || 0,
+                state = id <= receipts.seen ? 'seen'
+                    : id <= Math.max(receipts.delivered, receipts.seen) ? 'delivered' : 'sent';
 
             mark.className = 'receipt ' + state;
             mark.textContent = state === 'sent' ? '✓' : '✓✓';
-            if (id === newest) {
-                mark.textContent += ' ' + (receipts.seen_at ? T.seenAt.replace('{time}', clock(receipts.seen_at)) : T.seen);
-            }
             mark.setAttribute('title', state === 'seen' ? T.seen : state === 'delivered' ? T.delivered : T.sent);
         }
     }

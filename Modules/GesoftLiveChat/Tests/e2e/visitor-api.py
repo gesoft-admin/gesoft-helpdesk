@@ -438,7 +438,7 @@ if os.environ.get("GLC_AGENT_EMAIL"):
     first = br.get("id")
     check("receipts: start names the message it stored", first,
           int(one(f"select min(id) from threads where conversation_id={cr} and type=1")))
-    check("  a new message is only sent", poll(tr).get("receipts"), {"delivered": 0, "seen": 0, "seen_at": None})
+    check("  a new message is only sent", poll(tr).get("receipts"), {"delivered": 0, "seen": 0})
     page("/gesoft-live-chat/agent/chats")
     got = poll(tr)["receipts"]
     check("  delivered once an agent's chat list has fetched it", (got["delivered"], got["seen"]), (first, 0))
@@ -446,20 +446,22 @@ if os.environ.get("GLC_AGENT_EMAIL"):
     def beat(conv, seen):
         return agent_post(f"/gesoft-live-chat/agent/{conv}/typing", {"typing": 0, "seen": seen})[1]
 
+    def agent_seen(conv):
+        return int(one(f"select agent_seen_id from gesoft_live_chat_receipts where conversation_id={conv}") or 0)
+
     beat(cr, first)
-    got = poll(tr)["receipts"]
-    check("  seen once an agent's page had it on screen", got["seen"], first)
-    check("  with the time", bool(got["seen_at"]), True)
+    check("  seen once an agent's page had it on screen", agent_seen(cr), first)
+    check("  which the visitor is not told, nor when", poll(tr)["receipts"], {"delivered": first, "seen": 0})
     _, sent = send(tr, f"Al doilea {RUN}")
     second = sent.get("id")
     check("send names the message it stored", second,
           int(one(f"select max(id) from threads where conversation_id={cr} and type=1")))
     beat(cr, second + 100000)
-    check("an agent's report past the newest message moves only to it", poll(tr)["receipts"]["seen"], second)
+    check("an agent's report past the newest message moves only to it", agent_seen(cr), second)
     beat(cr, first)
-    check("  and an older report does not move it back", poll(tr)["receipts"]["seen"], second)
+    check("  and an older report does not move it back", agent_seen(cr), second)
     check("  nor does nonsense", (agent_post(f"/gesoft-live-chat/agent/{cr}/typing", {"typing": 0, "seen": "abc"})[0],
-                                  poll(tr)["receipts"]["seen"]), (200, second))
+                                  agent_seen(cr)), (200, second))
 
     agent_post(f"/gesoft-live-chat/agent/{cr}/nudge", {})
     reply = int(one(f"select max(id) from threads where conversation_id={cr} and type=2 and state=2"))

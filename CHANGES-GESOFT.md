@@ -89,11 +89,14 @@ On an agent's chat page, the three-second typing beat also names the
 visitor's newest message, and the page shows it without waiting for core's
 five-second realtime poll.
 
-Messages carry delivery receipts both ways: one tick once sent, two once the
-other side's screen fetched it, and "Seen at 10:32" on the newest message that
-was on that screen while the screen could be looked at — the bubble open in a
-visible tab, the agent's chat page visible. They ride on the bubble's poll and
-the agent's beat, so no request is added. Live Helper Chat keeps a status per
+Messages carry delivery receipts: one tick once sent, two once the other
+side's screen fetched it. Agents also see "Seen at 10:32" under the newest reply
+that was on the visitor's screen while it could be looked at — the bubble open
+in a visible tab. The visitor sees ticks only, never whether or when an agent
+read their message: support chat vendors split on that, "seen but no answer"
+reads as being ignored, and the typing dots already say somebody is replying.
+`GESOFT_LIVE_CHAT_RECEIPTS_SEEN_TO_VISITOR` turns it on. Receipts ride on the
+bubble's poll and the agent's beat, so no request is added. Live Helper Chat keeps a status per
 message and can leave one stuck at delivered; this keeps one "up to message N"
 pointer per state per conversation, which only moves forward, is clamped to
 messages that exist, and leaves core's `threads` table alone.

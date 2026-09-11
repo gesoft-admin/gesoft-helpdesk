@@ -236,9 +236,12 @@ if (agent) {
   await agent.chats();
   check("  two ticks once an agent's FreeScout has it", await waitFor(a.ev, `${lastMine}.mark.startsWith('✓✓')`, 8000), true);
   await agent.typing(convA, false, Number(storedId));
-  check('  "Văzut la …" once an agent has seen it', await waitFor(a.ev, `/^✓✓ Văzut la \\d{2}:\\d{2}$/.test(${lastMine}.mark)`, 8000), true);
-  check('  and only on the newest seen message',
-    await a.ev(`[...${R}.querySelectorAll('.log .row.visitor .receipt')].filter(e => e.textContent.includes('Văzut')).length`), 1);
+  const agentSeen = () => Number(one(`select agent_seen_id from gesoft_live_chat_receipts where conversation_id=${convA}`) || 0);
+  check('  an agent seeing it is recorded', agentSeen() >= Number(storedId), true);
+  await sleep(4000);  // a few polls
+  check('  but the visitor is shown two ticks and nothing more', await a.ev(`${lastMine}.mark`), '✓✓');
+  check('  on every message: no words, no time',
+    await a.ev(`[...${R}.querySelectorAll('.log .row.visitor .receipt')].every(e => /^✓{1,2}$/.test(e.textContent))`), true);
 
   await agent.nudge(convA);
   const nudgeId = newestReply();

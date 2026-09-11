@@ -309,12 +309,10 @@ check("  seen, with the time, once it was on the visitor's screen",
 check('  and the reply before it seen, without a time of its own',
   await ev(`${stateOf(replyIds[replyIds.length - 2])} === 'seen' && !/\\d:\\d/.test(${mark(replyIds[replyIds.length - 2])}.innerText)`), true);
 const newestVisitor = Number(one(`select max(id) from threads where conversation_id=${here.conv} and type=1 and state=2`));
-let visitorToldSeen = 0;
-for (let i = 0; i < 12 && visitorToldSeen !== newestVisitor; i++) {
-  visitorToldSeen = (await pollOnce(here)).receipts.seen;
-  if (visitorToldSeen !== newestVisitor) await sleep(1000);
-}
-check("the agent's open chat page marks the visitor's messages seen", visitorToldSeen, newestVisitor);
+const agentSeen = () => Number(one(`select agent_seen_id from gesoft_live_chat_receipts where conversation_id=${here.conv}`) || 0);
+for (let i = 0; i < 12 && agentSeen() !== newestVisitor; i++) await sleep(1000);
+check("the agent's open chat page marks the visitor's messages seen", agentSeen(), newestVisitor);
+check('  which the visitor is not told', (await pollOnce(here)).receipts, { delivered: newestVisitor, seen: 0 });
 
 // ------------------------------------------------------------ blocking a visitor
 const blockedEmail = `e2e-op-blocat-${RUN}@gesoft.test`;

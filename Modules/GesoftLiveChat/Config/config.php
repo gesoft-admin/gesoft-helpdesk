@@ -207,10 +207,18 @@ return [
     'receipts' => env('GESOFT_LIVE_CHAT_RECEIPTS', true),
 
     /**
-     * Whether the visitor is told that an agent has seen their message, or
-     * only that it was delivered. Agents always see what the visitor has seen.
+     * Whether the visitor is told that an agent has seen their message. Off:
+     * the visitor sees sent and delivered, and agents alone see "seen".
+     *
+     * Support chat vendors split on this. Tidio never shows it to visitors,
+     * Live Helper Chat drops the tick once a message is read, Crisp has a
+     * switch to hide it, and Intercom shows "Seen" only once a teammate starts
+     * replying, so opening a conversation promises nothing. "Seen but no
+     * answer" reads as being ignored (CHI 2014, 2017, 2022), and an agent here
+     * may be in several chats at once. That somebody is replying is already
+     * shown by the typing dots.
      */
-    'receipts_seen_to_visitor' => env('GESOFT_LIVE_CHAT_RECEIPTS_SEEN_TO_VISITOR', true),
+    'receipts_seen_to_visitor' => env('GESOFT_LIVE_CHAT_RECEIPTS_SEEN_TO_VISITOR', false),
 
     /**
      * The language of automatic messages when the bubble did not say which:

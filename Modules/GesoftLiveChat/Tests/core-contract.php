@@ -307,6 +307,12 @@ $contract = [
         'needs' => ["\\Eventy::filter('javascripts'", "@yield('javascript')", '<div class="layout-2col">', '<div class="sidebar-2col">'],
         'cost'  => 'The editor is shown above the messages before it moves, or on a small screen the chat list no longer comes along as the page scrolls.',
     ],
+    [
+        'what'  => 'the editor\'s placeholder sits beside the text in its editing area',
+        'file'  => 'public/js/summernote/summernote.js',
+        'needs' => ['<div class="note-placeholder">', 'note-editing-area', 'note-editable'],
+        'cost'  => 'The first characters of a reply are drawn over the placeholder again until typing pauses.',
+    ],
 ];
 
 $pass = 0; $fail = 0;

@@ -190,6 +190,24 @@ let shape = await layout();
 check('in Chat Mode a short chat has the editor at the bottom of the window',
   [shape.composer, shape.short, near(shape.editorGap)], [true, true, true]);
 check('  and its newest message just above the editor', near(shape.newestGap), true);
+
+// Reported on 2026-09-11: the first characters typed were drawn over the
+// placeholder. Core's editor hides it on a change event debounced by 100 ms,
+// which fires only when typing pauses. Typed and read back in one step, so a
+// debounce has no time to hide it.
+await waitFor(`!!document.querySelector('.form-reply .note-editable')`, 15000);
+check('the placeholder goes with the first character typed, not after a pause', await ev(`(() => {
+  const editor = document.querySelector('.form-reply .note-editable');
+  const placeholder = editor && editor.closest('.note-editing-area').querySelector('.note-placeholder');
+  if (!placeholder || getComputedStyle(placeholder).display === 'none') { return 'no placeholder on screen to begin with'; }
+  editor.focus();
+  document.execCommand('insertText', false, 'B');
+  const gone = getComputedStyle(placeholder).display === 'none';
+  $('#body').summernote('code', '');
+  window.fs_reply_changed = false;
+  window.onbeforeunload = null;
+  return gone;
+})()`), true);
 check('More Actions offers "ask if still there" and "block visitor"',
   await ev(`!!document.querySelector('.gesoft-chat-nudge') && !!document.querySelector('.gesoft-chat-block-open')`), true);
 

@@ -124,6 +124,11 @@ being pulled down. The customer panel, with Start Remote Support, scrolls in
 its own box beside the messages.
 `GESOFT_LIVE_CHAT_NEWEST_AT_BOTTOM=false` brings back core's layout.
 
+The first characters of an agent's reply are no longer drawn over the editor's
+placeholder. Core's editor, Summernote 0.8.9, hides it on a change event it
+debounces by 100 ms, which fires only once typing pauses; the module hides it
+on the keystroke itself.
+
 The chat also has a page of its own, `/chat`, for a link rather than an
 embed: the same bubble, open from the start and filling the window, so a site
 needs no bubble and the helpdesk no second hostname.

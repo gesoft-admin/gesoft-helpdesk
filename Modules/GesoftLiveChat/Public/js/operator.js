@@ -646,6 +646,21 @@
         toBottom();
     }
 
+    // The editor's placeholder goes with the first character, not after a pause.
+    //
+    // Core's editor, Summernote 0.8.9, hides it on its `change` event, which it
+    // debounces by 100 ms — and a debounce fires only once typing stops, so the
+    // first words of a reply were written over "Use ENTER to send the message".
+    // `input` comes before the character is drawn. Showing it again when the
+    // editor is emptied stays Summernote's.
+    $(document).on('input compositionstart', '.note-editable', function (e) {
+        var placeholder = $(this).closest('.note-editing-area').children('.note-placeholder');
+        if (!placeholder.length) { return; }
+        if (e.type === 'compositionstart' || $.trim($(this).text()) !== '' || $(this).find('img').length) {
+            placeholder.hide();
+        }
+    });
+
     // A reply in a chat stays on the page.
     //
     // After an agent sends a chat reply, core reloads the whole conversation

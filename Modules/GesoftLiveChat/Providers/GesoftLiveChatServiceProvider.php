@@ -223,11 +223,21 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
         // Receipts under an agent's chat replies: sent, delivered, seen — the
         // newest seen one with the time. Drawn from what the server knows when
         // the page is rendered; operator.js keeps them current from the beat.
+        //
+        // The same line carries the time the message was written, which Chat
+        // Mode shows inside each message's bubble. One action for both, so a
+        // message has one line under it and not two.
         \Eventy::addAction('thread.meta', function ($thread, $loop = null, $threads = null, $conversation = null) {
-            if (!$conversation || !$conversation->isChat() || !config('gesoftlivechat.receipts')
-                || $thread->type != \App\Thread::TYPE_MESSAGE
+            if (!$conversation || !$conversation->isChat()
+                || !in_array($thread->type, [\App\Thread::TYPE_CUSTOMER, \App\Thread::TYPE_MESSAGE, \App\Thread::TYPE_NOTE])
                 || $thread->state != \App\Thread::STATE_PUBLISHED
             ) {
+                return;
+            }
+
+            if (!config('gesoftlivechat.receipts') || $thread->type != \App\Thread::TYPE_MESSAGE) {
+                echo \View::make('gesoftlivechat::partials/stamp', ['thread' => $thread, 'receipt' => null])->render();
+
                 return;
             }
 
@@ -244,10 +254,9 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
                 }
             }
 
-            echo \View::make('gesoftlivechat::partials/receipt', [
-                'thread' => $thread,
-                'state'  => $state,
-                'label'  => $label,
+            echo \View::make('gesoftlivechat::partials/stamp', [
+                'thread'  => $thread,
+                'receipt' => ['state' => $state, 'label' => $label],
             ])->render();
         }, 20, 4);
 

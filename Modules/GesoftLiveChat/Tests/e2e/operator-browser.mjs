@@ -359,8 +359,35 @@ await settle();
 shape = await layout();
 check('  just above the editor, and the page itself has not moved', [near(shape.fromBottom), shape.pageTop], [true, 0]);
 
+// Messages are bubbles: the visitor's on the left, the agent's on the right,
+// a one-line message a line tall, its time inside it.
+const bubble = (text) => ev(`(() => {
+  const pane = document.getElementById('conv-layout-main').getBoundingClientRect();
+  const t = [...document.querySelectorAll('#conv-layout-main > .thread')].find(t => t.innerText.includes(${JSON.stringify(text)}));
+  if (!t) return null;
+  const body = t.querySelector('.thread-body').getBoundingClientRect(), time = t.querySelector('.gesoft-chat-time');
+  const photo = t.querySelector('.thread-photo');
+  return {
+    left: Math.round(body.left - pane.left), right: Math.round(pane.right - body.right),
+    height: Math.round(body.height),
+    time: time && time.offsetParent !== null ? time.innerText.trim() : null,
+    photo: !!photo && photo.offsetParent !== null,
+  };
+})()`);
+const said = await bubble(`Vizitatorul revine ${RUN}`), replied = await bubble(`Primul răspuns ${RUN}`);
+check("in Chat Mode the visitor's message is a bubble on the left, the agent's on the right",
+  [said.left < said.right, replied.right < replied.left], [true, true]);
+check('  a one-line message is one line tall, the time beside the text',
+  [said.height <= 40, replied.height <= 40, said.photo], [true, true, false]);
+check('  and the time is the one it was written at',
+  [/^\d{1,2}:\d{2}$/.test(said.time || ''), /^\d{1,2}:\d{2}$/.test(replied.time || '')], [true, true]);
+
 // Reading further up: the editor stays where it is, and a new message is
-// announced rather than moving what the agent is reading.
+// announced rather than moving what the agent is reading. The chat is made
+// long first, whatever size the bubbles are.
+await say(here, Array.from({ length: 40 }, (_, i) => `Rândul ${i + 1} ${RUN}`).join('\n'));
+await waitFor(onScreen(`Rândul 40 ${RUN}`), 6000);
+await settle();
 await ev(`(() => { const p = document.getElementById('conv-layout-main'); p.scrollTop = -p.scrollHeight; return true; })()`);
 await settle();
 const reading = await layout();
@@ -381,6 +408,9 @@ check('  which goes to the newest message', [near(shape.fromBottom), shape.newer
 const visitorSees = (await pollOnce(here)).messages.map((m) => m.body);
 check('the visitor receives both replies',
   visitorSees.includes(`Primul răspuns ${RUN}`) && visitorSees.includes(`Al doilea răspuns ${RUN}`), true);
+check('  both stored as written, without an empty line from the Enter that sent them',
+  sql(`select body from threads where conversation_id=${here.conv} and type=2 and body like '%${RUN}%' order by id`)
+    .map((r) => /<div><br><\/div>\s*$/.test(r[0])), [false, false]);
 
 // ------------------------------------------------------------------ receipts
 // That poll fetched both replies, so both are delivered; the agent's page
@@ -410,6 +440,18 @@ await waitFor(`!!document.querySelector('#conv-layout-main .thread')`, 15000);
 shape = await layout();
 check("outside Chat Mode a chat keeps core's layout, the editor above the messages",
   [shape.inHeader, shape.composer, await ev(`!!document.querySelector('.gesoft-chat-layout')`)], [true, false, false]);
+const card = await bubble(`Vizitatorul revine ${RUN}`);
+check("  and core's message cards, with the photo and no time line of ours",
+  [card.photo, card.time, await ev(`[...document.querySelectorAll('#conv-layout-main .thread-type-customer .gesoft-chat-stamp')].every(s => s.offsetParent === null)`)],
+  [true, null, true]);
+
+// A reply stored before that, ending in the empty line, shows none in Chat Mode.
+sql(`update threads set body = concat(body, '<div><br></div>') where conversation_id = ${here.conv} and type = 2 and body like '%Primul r%${RUN}%'`);
+await ev(`window.onbeforeunload = null; true`);
+await open(`/conversation/${here.conv}?chat_mode=1`);
+await waitFor(`!!document.querySelector('.gesoft-chat-composer')`, 15000);
+check('an older reply ending in an empty line shows no blank line in its bubble',
+  (await bubble(`Primul răspuns ${RUN}`) || {}).height <= 40, true);
 
 // ------------------------------------------------------------ blocking a visitor
 const blockedEmail = `e2e-op-blocat-${RUN}@gesoft.test`;

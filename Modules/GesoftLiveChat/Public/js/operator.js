@@ -583,11 +583,31 @@
 
         // The messages' pane takes what the window leaves between the top of
         // the pane and the editor, so the editor ends at the bottom of the
-        // window. Never less than a few messages' worth; on a small screen
-        // the page scrolls as well, and the editor stays in view there too.
-        function fit() {
-            var top = main.getBoundingClientRect().top + window.pageYOffset;
-            main.style.height = Math.max(Math.floor(window.innerHeight - top - composer.offsetHeight), 240) + 'px';
+        // window.
+        //
+        // On a small screen the header, and below 1100 px the customer panel
+        // too, leave too little of it. The pane then takes the whole window
+        // above the editor and the page opens scrolled down to it; the rest is
+        // a scroll up. Not main.js's scrollTo(), which replaces the window's.
+        var root = document.scrollingElement || document.documentElement;
+
+        // That first scroll waits for core's start-up to finish: core shows
+        // the editor and, finding the page already scrolled past it, scrolls
+        // to it itself, as far down as the page goes. Afterwards the page stays
+        // scrolled to the pane while it was, as the editor changes size.
+        function fit(first) {
+            var top = main.getBoundingClientRect().top + window.pageYOffset,
+                room = window.innerHeight - top - composer.offsetHeight,
+                tight = room < 240,
+                aligned = Math.abs(root.scrollTop - top) < 2;
+
+            main.style.height = Math.floor(tight ? Math.max(window.innerHeight - composer.offsetHeight, 240) : room) + 'px';
+            if (!tight) { return; }
+            if (first === true) {
+                setTimeout(function () { fit(); root.scrollTop = main.getBoundingClientRect().top + window.pageYOffset; }, 0);
+            } else if (aligned) {
+                root.scrollTop = top;
+            }
         }
 
         // A reversed pane counts its scroll from the bottom: 0 is the newest
@@ -618,12 +638,35 @@
         });
         newer.on('click', toBottom);
 
+        // Replies sent with Enter before the fix below end in an empty line,
+        // "<div><br></div>", which in a bubble is a blank line under the text.
+        function hideBlankEnd(scope) {
+            $(scope).find('.thread-content').each(function () {
+                var node = this.lastChild;
+                while (node) {
+                    if (node.nodeType === 3 && $.trim(node.nodeValue) === '') {
+                        node = node.previousSibling;
+                    } else if (node.nodeType === 1 && /^(DIV|P)$/.test(node.tagName)
+                        && $.trim(node.textContent) === '' && !node.querySelector(':not(br)')) {
+                        node.classList.add('gesoft-chat-blank');
+                        node = node.previousSibling;
+                    } else {
+                        break;
+                    }
+                }
+            });
+        }
+        hideBlankEnd(main);
+
         if (window.MutationObserver) {
             new MutationObserver(function (changes) {
                 var message = false;
-                for (var i = 0; i < changes.length && !message; i++) {
+                for (var i = 0; i < changes.length; i++) {
                     for (var j = 0; j < changes[i].addedNodes.length; j++) {
-                        if ($(changes[i].addedNodes[j]).is('.thread')) { message = true; break; }
+                        if ($(changes[i].addedNodes[j]).is('.thread')) {
+                            message = true;
+                            hideBlankEnd(changes[i].addedNodes[j]);
+                        }
                     }
                 }
                 grown(message);
@@ -642,7 +685,7 @@
         $(window).on('resize', fit);
 
         chatLayout = { toBottom: toBottom };
-        fit();
+        fit(true);
         toBottom();
     }
 
@@ -660,6 +703,24 @@
             placeholder.hide();
         }
     });
+
+    // Enter sends a chat reply without an empty line at its end.
+    //
+    // Core sends on Enter from a keydown handler on the document. By then
+    // Summernote's own handler on the editor has started a new paragraph, so
+    // every reply was stored ending in "<div><br></div>" (main.js knows: its
+    // preventDefault() there is marked "Does not work"). Summernote leaves a
+    // key that is already cancelled alone, so it is cancelled here on the way
+    // down, only when core is about to send: the same checks as core's. Core's
+    // handler still runs and sends.
+    document.addEventListener('keydown', function (e) {
+        if (e.which !== 13 || e.shiftKey || e.altKey || e.metaKey || e.isComposing) { return; }
+        if (!$('#conv-top-blocks').length || !$(e.target).is('.note-editable') || $('.modal:visible').length) { return; }
+        var body = $('#body').val();
+        if (!body || body === '<div><br></div>') { return; }
+        if (!$('div.conv-block:not(.conv-note-block) div.conv-reply-body:visible .btn-reply-submit:first').length) { return; }
+        e.preventDefault();
+    }, true);
 
     // A reply in a chat stays on the page.
     //

@@ -122,12 +122,30 @@ last, and the editor is moved before core's start-up shows it. An agent reading
 further up stays on what they are reading and is told "New messages" instead of
 being pulled down. The customer panel, with Start Remote Support, scrolls in
 its own box beside the messages.
+Messages there are drawn as a chat console draws them rather than as email
+cards: compact bubbles, the visitor's on the left and the agents' on the
+right, notes still yellow, the name once for a run of messages from the same
+side, and the time and receipt inside the bubble, beside the text when there is
+room. Core's card — a 45 px photo, an 18 px name, a relative date, a status
+line — took about 120 px for a one-line message; a bubble takes 32, 52 with
+the name above it. Live Helper Chat's operator window is built the same way.
+System lines such as "the customer left" are small and centred, and a
+message's menu shows when the pointer is on it.
 `GESOFT_LIVE_CHAT_NEWEST_AT_BOTTOM=false` brings back core's layout.
 
 The first characters of an agent's reply are no longer drawn over the editor's
 placeholder. Core's editor, Summernote 0.8.9, hides it on a change event it
 debounces by 100 ms, which fires only once typing pauses; the module hides it
 on the keystroke itself.
+
+A chat reply sent with Enter no longer ends in an empty line. Core sends from
+a keydown handler on the document, after Summernote's own handler on the
+editor has already started a new paragraph, so every such reply was stored
+ending in `<div><br></div>` (main.js marks its `preventDefault()` there "Does
+not work"). The visitor never saw it, the bubble trims text; the agent saw a
+blank line under each reply. The module cancels the key on its way down, under
+the checks core sends on, and in Chat Mode hides the empty line in replies
+stored before.
 
 The chat also has a page of its own, `/chat`, for a link rather than an
 embed: the same bubble, open from the start and filling the window, so a site

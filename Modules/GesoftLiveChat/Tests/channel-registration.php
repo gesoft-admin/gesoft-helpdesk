@@ -28,7 +28,7 @@ namespace Illuminate\Support {
 }
 
 namespace App {
-    class Thread { const TYPE_CUSTOMER = 1; const TYPE_MESSAGE = 2; const TYPE_LINEITEM = 4; }
+    class Thread { const TYPE_CUSTOMER = 1; const TYPE_MESSAGE = 2; const TYPE_NOTE = 3; const TYPE_LINEITEM = 4; const STATE_DRAFT = 1; const STATE_PUBLISHED = 2; }
 }
 
 namespace App\Notifications {
@@ -87,7 +87,7 @@ namespace {
     // A rendered view says which one it was, which is all these checks ask.
     class View {
         public static function make($name, $data = []) {
-            return new class($name) {
+            return new class($name.(empty($data['receipt']) ? '' : ' with receipt')) {
                 private $name;
                 public function __construct($name) { $this->name = $name; }
                 public function render() { return '['.$this->name.']'; }
@@ -243,17 +243,25 @@ namespace {
     check('  and marked even with typing and receipts off', $before_threads(new ConversationStub(true, true)), '[gesoftlivechat::partials/layout]');
     unset($CONFIG['gesoftlivechat.typing'], $CONFIG['gesoftlivechat.receipts'], $CONFIG['gesoftlivechat.newest_at_bottom']);
 
-    check('receipts are added under messages', isset(Eventy::$stub->actions['thread.meta']), true);
+    // Under each chat message, one line: the time it was written, and under an
+    // agent's reply the receipt as well.
+    check('a time and receipt line is added under messages', isset(Eventy::$stub->actions['thread.meta']), true);
     $CONFIG['gesoftlivechat.receipts'] = true;
+    $meta = function ($thread, $conversation) {
+        ob_start(); \Eventy::action('thread.meta', $thread, null, null, $conversation); return ob_get_clean();
+    };
     $reply = (object) ['id' => 7, 'type' => \App\Thread::TYPE_MESSAGE, 'state' => 2];
     $visitor_line = (object) ['id' => 8, 'type' => \App\Thread::TYPE_CUSTOMER, 'state' => 2];
-    ob_start(); \Eventy::action('thread.meta', $reply, null, null, new ConversationStub(false)); $rendered = ob_get_clean();
-    check('  but not on an email conversation', $rendered, '');
-    ob_start(); \Eventy::action('thread.meta', $visitor_line, null, null, new ConversationStub(true)); $rendered = ob_get_clean();
-    check('  nor under the visitor\'s own messages', $rendered, '');
+    $note = (object) ['id' => 9, 'type' => \App\Thread::TYPE_NOTE, 'state' => 2];
+    $line_item = (object) ['id' => 10, 'type' => \App\Thread::TYPE_LINEITEM, 'state' => 2];
+    $draft = (object) ['id' => 11, 'type' => \App\Thread::TYPE_MESSAGE, 'state' => 1];
+    check('  but not on an email conversation', $meta($reply, new ConversationStub(false)), '');
+    check('  the visitor\'s own messages get the time, never a receipt', $meta($visitor_line, new ConversationStub(true)), '[gesoftlivechat::partials/stamp]');
+    check('  and so does a note', $meta($note, new ConversationStub(true)), '[gesoftlivechat::partials/stamp]');
+    check('  not a line item, which has a time of its own', $meta($line_item, new ConversationStub(true)), '');
+    check('  nor a draft', $meta($draft, new ConversationStub(true)), '');
     $CONFIG['gesoftlivechat.receipts'] = false;
-    ob_start(); \Eventy::action('thread.meta', $reply, null, null, new ConversationStub(true)); $rendered = ob_get_clean();
-    check('  nor with receipts switched off', $rendered, '');
+    check('  with receipts switched off an agent\'s reply gets the time only', $meta($reply, new ConversationStub(true)), '[gesoftlivechat::partials/stamp]');
     unset($CONFIG['gesoftlivechat.receipts']);
 
     // A customer's chat message is announced by the in-page alert, so the bell

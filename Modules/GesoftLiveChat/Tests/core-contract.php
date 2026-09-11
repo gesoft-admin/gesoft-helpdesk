@@ -308,10 +308,36 @@ $contract = [
         'cost'  => 'The editor is shown above the messages before it moves, or on a small screen the chat list no longer comes along as the page scrolls.',
     ],
     [
+        'what'  => 'a message is photo, header with person and info, then a body with thread.meta',
+        'file'  => 'resources/views/conversations/partials/thread.blade.php',
+        'needs' => [
+            '<div class="thread-photo">', '<div class="thread-header">', '<div class="thread-person">',
+            '<div class="thread-info">', '<div class="thread-recipients">', '<div class="thread-body">',
+            '<div class="thread-content" dir="auto">', '<div class="dropdown thread-options">',
+        ],
+        'cost'  => 'Chat Mode\'s bubbles come apart: a photo or a date line back inside them, or the time and receipt outside the bubble.',
+    ],
+    [
         'what'  => 'the editor\'s placeholder sits beside the text in its editing area',
         'file'  => 'public/js/summernote/summernote.js',
         'needs' => ['<div class="note-placeholder">', 'note-editing-area', 'note-editable'],
         'cost'  => 'The first characters of a reply are drawn over the placeholder again until typing pauses.',
+    ],
+    [
+        'what'  => 'chat mode sends on Enter from the document, under checks the module repeats',
+        'file'  => 'public/js/main.js',
+        'needs' => [
+            "var conv_top_blocks = \$('#conv-top-blocks');", "var body = \$('#body').val();",
+            "if (!body || body == '<div><br></div>') {",
+            "var button = \$('div.conv-block:not(.conv-note-block) div.conv-reply-body:visible .btn-reply-submit:first');",
+        ],
+        'cost'  => 'Enter in a chat reply either leaves an empty line at the end of every reply again, or, if core stops sending where the module still cancels the key, does nothing at all.',
+    ],
+    [
+        'what'  => 'Summernote leaves a key that is already cancelled alone',
+        'file'  => 'public/js/summernote/summernote.js',
+        'needs' => ["if (!event.isDefaultPrevented()) {", "_this.handleKeyMap(event);", "'ENTER': 'insertParagraph',"],
+        'cost'  => 'Every chat reply sent with Enter is stored ending in an empty line, a blank line under each of the agent\'s bubbles.',
     ],
 ];
 

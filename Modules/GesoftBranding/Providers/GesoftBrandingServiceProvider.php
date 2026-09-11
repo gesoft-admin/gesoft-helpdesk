@@ -79,6 +79,8 @@ class GesoftBrandingServiceProvider extends ServiceProvider
             return $styles;
         }, 1000);
 
+        $this->mailHooks();
+
         // Replacing the footer rather than appending to it, because that is the
         // shape of the hook: core renders its own line only when this filter
         // returns nothing. So the upstream copyright is reproduced here — it is
@@ -118,6 +120,96 @@ class GesoftBrandingServiceProvider extends ServiceProvider
         }
 
         return asset(ltrim($value, '/'));
+    }
+
+    /**
+     * The conversation a customer reply is being rendered for. Core's header
+     * and footer filters for that mail pass no arguments, so it is picked up
+     * from the first hook in between that has it.
+     */
+    protected static $mail_conversation = null;
+
+    /**
+     * The instance's frame around the mail a customer receives when an agent
+     * replies: a coloured bar, a logo, a card, and a footer naming the request.
+     *
+     * Only through core's hooks for that mail (`reply_email.header` and
+     * `.footer` open and close the card around core's own content), so the
+     * reply separator, quoted history and message marker core relies on to
+     * read the customer's answer stay exactly as core writes them.
+     */
+    protected function mailHooks()
+    {
+        if (!config('gesoftbranding.mail_layout')) {
+            return;
+        }
+
+        \Eventy::addAction('reply_email.before_signature', function ($thread, $loop, $threads, $conversation) {
+            self::$mail_conversation = $conversation;
+        }, 20, 4);
+
+        // The card's grey ground reaches the edges of the mail, as in the kit,
+        // instead of sitting inside the client's default body margin.
+        \Eventy::addFilter('reply_email.css', function ($css) {
+            return $css.' body { margin:0; padding:0; background:#F7F8FA; }';
+        });
+
+        \Eventy::addFilter('reply_email.header', function ($html) {
+            self::$mail_conversation = null;
+
+            return $html.$this->mailHeader();
+        });
+
+        \Eventy::addFilter('reply_email.footer', function ($html) {
+            return $this->mailFooter(self::$mail_conversation).$html;
+        });
+
+        $tag = $this->setting('mail_subject_tag');
+        if ($tag !== '') {
+            \Eventy::addFilter('email.reply_to_customer.subject', function ($subject, $conversation) use ($tag) {
+                return '['.$tag.' #'.$conversation->number.'] '.$subject;
+            }, 20, 2);
+        }
+    }
+
+    protected function mailColor()
+    {
+        $color = $this->setting('brand_color');
+
+        return preg_match('/^#[0-9a-f]{6}$/i', $color) ? $color : '#3a3a3a';
+    }
+
+    public function mailHeader()
+    {
+        $e = function ($v) { return htmlspecialchars($v, ENT_QUOTES, 'UTF-8'); };
+        $font = "font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;";
+        $logo = $this->asset($this->setting('mail_logo'));
+        $name = $this->setting('mail_name') ?: $this->setting('brand_name');
+
+        $html = '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#F7F8FA;padding:24px 12px;"><tr><td align="center">'
+            .'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:680px;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:12px;overflow:hidden;text-align:left;">'
+            .'<tr><td style="height:4px;background:'.$this->mailColor().';font-size:0;line-height:0;">&nbsp;</td></tr>';
+
+        if ($logo !== '') {
+            $html .= '<tr><td style="padding:28px 32px 18px;"><img src="'.$e($logo).'" alt="'.$e($name).'" width="150" style="max-width:150px;height:auto;display:block;border:0;"></td></tr>';
+        } elseif ($name !== '') {
+            $html .= '<tr><td style="padding:28px 32px 18px;'.$font.'font-size:18px;font-weight:bold;color:#17202A;">'.$e($name).'</td></tr>';
+        }
+
+        return $html.'<tr><td style="padding:8px 32px 20px;'.$font.'color:#17202A;">';
+    }
+
+    public function mailFooter($conversation)
+    {
+        $font = "font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;";
+        $text = $conversation
+            ? __('This message is about request #:number. Reply to this email to continue the conversation.', ['number' => $conversation->number])
+            : __('Reply to this email to continue the conversation.');
+
+        return '</td></tr>'
+            .'<tr><td style="padding:18px 32px;background:#F7F8FA;border-top:1px solid #E5E7EB;'.$font.'font-size:12px;line-height:1.5;color:#6B7280;">'
+            .htmlspecialchars($text, ENT_QUOTES, 'UTF-8').'</td></tr>'
+            .'</table></td></tr></table>';
     }
 
     /**

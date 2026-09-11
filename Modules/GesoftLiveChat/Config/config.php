@@ -257,6 +257,14 @@ return [
     'color' => env('GESOFT_LIVE_CHAT_COLOR', ''),
 
     /**
+     * On the chat page: `light` or `dark` to fix the bubble's scheme (empty
+     * follows the visitor's system), and a stylesheet of the instance's loaded
+     * inside the bubble, a path on this helpdesk such as `/brand/bubble.css`.
+     */
+    'theme'      => env('GESOFT_LIVE_CHAT_THEME', ''),
+    'stylesheet' => env('GESOFT_LIVE_CHAT_STYLESHEET', ''),
+
+    /**
      * Whether a visitor must give an email address before the first message.
      *
      * On worth having: an address is what connects this conversation to the

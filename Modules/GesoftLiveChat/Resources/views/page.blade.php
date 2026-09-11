@@ -12,13 +12,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ $title !== '' ? $title : ($lang === 'en' ? 'Support' : 'Asistență') }}</title>
     <style>
-        :root { color-scheme: light dark; }
+        :root { color-scheme: {{ $theme !== '' ? $theme : 'light dark' }}; }
         html, body { margin: 0; height: 100%; background: {{ $color !== '' ? '#eef1f4' : '#e9efee' }}; }
         noscript p { margin: 0; padding: 3rem 1.25rem; text-align: center; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #16201f; }
-        @media (prefers-color-scheme: dark) {
+        @if ($theme !== 'light')
+        @if ($theme === '') @media (prefers-color-scheme: dark) { @endif
             html, body { background: #0b1112; }
             noscript p { color: #e3eae8; }
-        }
+        @if ($theme === '') } @endif
+        @endif
     </style>
 </head>
 <body>
@@ -27,6 +29,8 @@
         data-display="page"
         data-lang="{{ $lang }}"
         @if ($title !== '') data-title="{{ $title }}" @endif
-        @if ($color !== '') data-color="{{ $color }}" @endif></script>
+        @if ($color !== '') data-color="{{ $color }}" @endif
+        @if ($theme !== '') data-theme="{{ $theme }}" @endif
+        @if ($sheet !== '') data-stylesheet="{{ $sheet }}" @endif></script>
 </body>
 </html>

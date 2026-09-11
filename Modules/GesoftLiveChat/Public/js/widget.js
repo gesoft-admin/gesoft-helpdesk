@@ -17,12 +17,15 @@
  *           data-base="https://helpdesk.example.com"
  *           data-title="Asistență"
  *           data-color="#0d5652"
+ *           data-theme="light"
  *           data-lang="ro"></script>
  *
  * `data-base` is the helpdesk's own address and must be set whenever the page
  * is not served from it, which is every real embedding. `data-lang` is `ro` or
  * `en`; without it the bubble follows the page's own language, then the
- * browser's. `data-color` is the site's colour as `#rrggbb`.
+ * browser's. `data-color` is the site's colour as `#rrggbb`; `data-theme`
+ * (`light` or `dark`) stops the bubble following the visitor's system; and
+ * `data-stylesheet` adds a stylesheet of the site's inside the bubble.
  *
  * Like Live Helper Chat's widget it asks first whether anybody is available,
  * and offers a chat or a message form accordingly.
@@ -148,6 +151,24 @@
     // near the stylesheet; anything else keeps the bubble's own.
     var COLOR = /^#[0-9a-f]{6}$/i.test(attr('data-color') || '') ? attr('data-color') : '';
 
+    // data-theme="light" or "dark" fixes the bubble's scheme; without it the
+    // bubble follows the visitor's system. A site whose own pages are light
+    // wants a light bubble even on a machine set to dark.
+    var THEME = attr('data-theme') === 'light' || attr('data-theme') === 'dark' ? attr('data-theme') : '';
+    function dark(css) {
+        if (THEME === 'light') { return ''; }
+        return THEME === 'dark' ? css : '@media (prefers-color-scheme: dark) { ' + css + ' }';
+    }
+
+    // data-stylesheet: one stylesheet of the site's, loaded inside the bubble
+    // after its own, for what a colour cannot say: shapes, sizes, the
+    // neutrals. A path starting with / is on the helpdesk, like data-base.
+    var SHEET = (function (href) {
+        if (/^https?:\/\//i.test(href)) { return href; }
+        if (/^\/[^\/]/.test(href)) { return (attr('data-base') || '') + href; }
+        return '';
+    })(attr('data-stylesheet') || '');
+
     // data-display="page": the chat fills the window and is open from the
     // start, with no launcher and nothing to close — for the /chat page, which
     // is linked to rather than embedded.
@@ -222,13 +243,11 @@
         '  --agent: #ffffff; --agent-line: #dde5e3; --danger: #9c3a2c; --ok: #2e9b5f;',
         '  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink);',
         '}',
-        '@media (prefers-color-scheme: dark) {',
-        '  .wrap { --bg: #141b1c; --ink: #e3eae8; --muted: #93a3a3; --line: #26312f; --log: #0f1516;',
-        '    --agent: #1b2425; --agent-line: #26312f; --brand-soft: #16302d; --danger: #e08a78; }',
-        '}',
+        dark('.wrap { --bg: #141b1c; --ink: #e3eae8; --muted: #93a3a3; --line: #26312f; --log: #0f1516;' +
+            ' --agent: #1b2425; --agent-line: #26312f; --brand-soft: #16302d; --danger: #e08a78; }'),
         COLOR ? '.wrap { --brand: ' + COLOR + '; --brand-soft: color-mix(in srgb, ' + COLOR + ' 12%, #ffffff);' +
             ' --brand-light: color-mix(in srgb, ' + COLOR + ' 45%, #ffffff); --brand-ring: color-mix(in srgb, ' + COLOR + ' 20%, transparent); }' +
-            ' @media (prefers-color-scheme: dark) { .wrap { --brand-soft: color-mix(in srgb, ' + COLOR + ' 25%, #141b1c); } }' : '',
+            dark('.wrap { --brand-soft: color-mix(in srgb, ' + COLOR + ' 25%, #141b1c); }') : '',
         '.launcher {',
         '  position: fixed; right: 20px; bottom: 20px; z-index: 2147483000;',
         '  width: 58px; height: 58px; border-radius: 50%; border: 0; cursor: pointer;',
@@ -305,12 +324,12 @@
         '.row.agent .msg { background: var(--agent); border: 1px solid var(--agent-line); border-bottom-left-radius: 4px; }',
         '.msg a { color: inherit; text-decoration: underline; }',
         '.row.agent .msg a { color: var(--brand); }',
-        '@media (prefers-color-scheme: dark) { .row.agent .msg a { color: var(--brand-light); } }',
+        dark('.row.agent .msg a { color: var(--brand-light); }'),
         '.time { font-size: 10px; color: var(--muted); margin: 2px 4px 0; }',
         '.receipt { margin-left: 5px; font-weight: 700; }',
         '.receipt:empty { display: none; }',
         '.receipt.seen { color: var(--brand); }',
-        '@media (prefers-color-scheme: dark) { .receipt.seen { color: var(--brand-light); } }',
+        dark('.receipt.seen { color: var(--brand-light); }'),
         '.row.pending .msg { opacity: .65; }',
         '.note { align-self: center; max-width: 92%; text-align: center; font-size: 12px; color: var(--muted);',
         '  background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 7px 12px; }',
@@ -380,6 +399,13 @@
         '</section>',
         '</div>'
     ].join('');
+
+    if (SHEET) {
+        var sheet = document.createElement('link');
+        sheet.rel = 'stylesheet';
+        sheet.href = SHEET;
+        root.insertBefore(sheet, root.querySelector('style').nextSibling);
+    }
 
     function $(selector) { return root.querySelector(selector); }
     function $all(selector) { return root.querySelectorAll(selector); }

@@ -453,13 +453,29 @@ class ChatController extends Controller
         $lang = Presence::lang($request->query('lang'), (string) config('gesoftlivechat.visitor_lang', 'ro'));
         $script = __DIR__.'/../../Public/js/widget.js';
 
-        return response()->view('gesoftlivechat::page', [
+        return response()->view('gesoftlivechat::page', $this->look() + [
             'lang'    => $lang,
             'title'   => (string) config('gesoftlivechat.page_title'),
-            'color'   => preg_match('/^#[0-9a-f]{6}$/i', (string) config('gesoftlivechat.color')) ? (string) config('gesoftlivechat.color') : '',
             // A new bubble reaches a visitor who has the page cached.
             'version' => is_file($script) ? filemtime($script) : 1,
         ]);
+    }
+
+    /**
+     * The instance's colour, scheme and stylesheet for the bubble, each checked
+     * before it is written into an attribute.
+     */
+    protected function look()
+    {
+        $color = (string) config('gesoftlivechat.color');
+        $theme = config('gesoftlivechat.theme');
+        $sheet = (string) config('gesoftlivechat.stylesheet');
+
+        return [
+            'color' => preg_match('/^#[0-9a-f]{6}$/i', $color) ? $color : '',
+            'theme' => in_array($theme, ['light', 'dark'], true) ? $theme : '',
+            'sheet' => preg_match('~^/[^/]~', $sheet) ? $sheet : '',
+        ];
     }
 
     /**
@@ -473,7 +489,7 @@ class ChatController extends Controller
             abort(404);
         }
 
-        return view('gesoftlivechat::demo');
+        return view('gesoftlivechat::demo', $this->look());
     }
 
     // ------------------------------------------------------------- internals

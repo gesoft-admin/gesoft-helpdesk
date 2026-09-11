@@ -48,6 +48,19 @@ return [
     /** `#rrggbb` for the browser's theme colour. Empty keeps core's. */
     'brand_color' => env('HELPDESK_BRAND_COLOR', ''),
 
+    /**
+     * A frame around the mail a customer gets when an agent replies: a bar in
+     * `brand_color`, a logo, a card, a footer naming the request. Off by
+     * default. The logo must be a URL mail clients can fetch, and a PNG, since
+     * several do not show SVG; empty prints `mail_name` instead.
+     */
+    'mail_layout' => env('HELPDESK_BRAND_MAIL', false),
+    'mail_logo'   => env('HELPDESK_BRAND_MAIL_LOGO', ''),
+    'mail_name'   => env('HELPDESK_BRAND_MAIL_NAME', ''),
+
+    /** `[TAG #123]` in front of the reply's subject. Empty adds nothing. */
+    'mail_subject_tag' => env('HELPDESK_BRAND_MAIL_SUBJECT_TAG', ''),
+
     /** Where the brand name links to. Empty leaves it unlinked. */
     'brand_url' => env('HELPDESK_BRAND_URL', ''),
 

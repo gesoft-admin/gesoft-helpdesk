@@ -175,8 +175,10 @@ language.
 
 An instance's colours reach the chat too, without touching the module: the
 operator side reads its accent colours from CSS properties a brand stylesheet
-can set, and the bubble takes `data-color` from its script tag, or
-`GESOFT_LIVE_CHAT_COLOR` on the `/chat` page.
+can set, and the bubble takes `data-color`, `data-theme` (`light` or `dark`
+instead of following the visitor's system) and `data-stylesheet` (loaded inside
+its shadow root) from its script tag, or `GESOFT_LIVE_CHAT_COLOR`, `_THEME` and
+`_STYLESHEET` on the `/chat` page.
 
 A development-only artisan command and demo page, both off unless
 `GESOFT_LIVE_CHAT_DEV_TOOLS=true`, exist to exercise it on a test instance.
@@ -200,6 +202,13 @@ sets the browser's theme colour, and adds one stylesheet of the instance's after
 every other, so an instance can take on its own colours without a core or module
 file changing. The stylesheet must be a file under `public/`: core combines the
 stylesheets itself, and one it cannot read drops them all.
+
+With `HELPDESK_BRAND_MAIL=true` the mail a customer gets when an agent replies
+is framed: a bar in the brand colour, a logo, a card, and a footer naming the
+request, with an optional `[TAG #number]` in front of the subject. It goes
+through core's `reply_email.header`, `.footer` and `.css` hooks only, so the
+reply separator, the quoted history and the message marker that core reads a
+customer's answer by stay as core writes them.
 
 The repository ships neutral placeholder marks only. An instance's own files go
 in `public/brand/`, which git ignores. See [`TRADEMARKS.md`](TRADEMARKS.md).

@@ -16,13 +16,16 @@ namespace {
     function config($key, $default = null) { global $CONFIG; return array_key_exists($key, $CONFIG) ? $CONFIG[$key] : $default; }
     function asset($path) { return 'https://helpdesk.test/'.$path; }
     function public_path($path = '') { return __DIR__.'/fixtures/public/'.$path; }
-    function __($s, $r = []) { return $s; }
+    function __($s, $r = []) { foreach ($r as $k => $v) { $s = str_replace(':'.$k, $v, $s); } return $s; }
     function env($k, $d = null) { return $d; }
 
     class EventyStub {
         public $filters = [];
+        public $actions = [];
         public function addFilter($name, $cb, $prio = 20, $args = 1) { $this->filters[$name] = $cb; }
-        public function apply($name, $value) { return isset($this->filters[$name]) ? call_user_func($this->filters[$name], $value) : $value; }
+        public function addAction($name, $cb, $prio = 20, $args = 1) { $this->actions[$name] = $cb; }
+        public function apply($name, ...$args) { return isset($this->filters[$name]) ? call_user_func_array($this->filters[$name], $args) : $args[0]; }
+        public function fire($name, ...$args) { if (isset($this->actions[$name])) { call_user_func_array($this->actions[$name], $args); } }
     }
     class Eventy { public static $stub; public static function __callStatic($m, $a) { return call_user_func_array([self::$stub, $m], $a); } }
     Eventy::$stub = new EventyStub();
@@ -100,6 +103,27 @@ namespace {
     check('a path out of public is not added', count($e->apply('stylesheets', ['/css/style.css'])), 1);
     $e = boot(['brand_color' => 'red; background:url(x)']);
     check('a colour that is not #rrggbb is ignored', $e->apply('layout.theme_color', '#ffffff'), '#ffffff');
+
+    echo "\n--- the frame around a customer reply ---\n";
+    $e = boot();
+    check('off by default: no header', $e->apply('reply_email.header', '') === '', true);
+    check('off by default: subject untouched', $e->apply('email.reply_to_customer.subject', 'Re: X', (object) ['number' => 7]), 'Re: X');
+    $e = boot(['mail_layout' => true, 'brand_color' => '#1F6FEB', 'mail_logo' => '/brand/mail.png', 'mail_name' => 'Example <Support>', 'mail_subject_tag' => 'EX']);
+    $header = $e->apply('reply_email.header', '');
+    check('the bar takes the brand colour', $header, 'background:#1F6FEB');
+    check('the logo is an absolute URL', $header, 'src="https://helpdesk.test/brand/mail.png"');
+    check('its alt text is the name, escaped', $header, 'alt="Example &lt;Support&gt;"');
+    $e->fire('reply_email.before_signature', null, null, null, (object) ['number' => 42]);
+    $footer = $e->apply('reply_email.footer', '');
+    check('the footer names the request', $footer, 'request #42');
+    check('and closes every table the header opened', substr_count($header.$footer, '<table') === substr_count($header.$footer, '</table>'), true);
+    check('the subject carries the tag and number', $e->apply('email.reply_to_customer.subject', 'Re: X', (object) ['number' => 42]), '[EX #42] Re: X');
+    $e->apply('reply_email.header', '');
+    check('a new mail does not inherit the last one\'s request', $e->apply('reply_email.footer', ''), 'Reply to this email');
+    $e = boot(['mail_layout' => true, 'brand_color' => 'red;x:y', 'brand_name' => 'Plain']);
+    $header = $e->apply('reply_email.header', '');
+    check('a colour that is not #rrggbb is not written', strpos($header, 'red;x:y') === false, true);
+    check('without a logo the name is printed', $header, '>Plain</td>');
 
     printf("\n%d passed, %d failed\n", $pass, $fail);
     exit($fail ? 1 : 0);

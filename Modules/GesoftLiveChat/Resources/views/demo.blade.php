@@ -53,6 +53,9 @@
      follows this page, which is Romanian. --}}
 <script src="{{ asset('modules/gesoftlivechat/js/widget.js') }}"
         data-title="Asistență Gesoft"
-        data-lang="{{ in_array(request('lang'), ['ro', 'en'], true) ? request('lang') : '' }}"></script>
+        data-lang="{{ in_array(request('lang'), ['ro', 'en'], true) ? request('lang') : '' }}"
+        @if ($color !== '') data-color="{{ $color }}" @endif
+        @if ($theme !== '') data-theme="{{ $theme }}" @endif
+        @if ($sheet !== '') data-stylesheet="{{ $sheet }}" @endif></script>
 </body>
 </html>

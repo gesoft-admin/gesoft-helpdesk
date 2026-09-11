@@ -5,6 +5,7 @@ namespace Modules\GesoftRemoteSupport\Providers;
 use Illuminate\Database\Eloquent\Factory;
 use Illuminate\Support\ServiceProvider;
 use Modules\GesoftRemoteSupport\Entities\RemoteSession;
+use Modules\GesoftRemoteSupport\Services\ClosedTicket;
 
 // Module alias, as recommended by the FreeScout module guide.
 if (!defined('GESOFT_REMOTE_SUPPORT_MODULE')) {
@@ -58,6 +59,19 @@ class GesoftRemoteSupportServiceProvider extends ServiceProvider
                 'user'         => auth()->user(),
             ])->render();
         }, 20, 1);
+
+        // A closed ticket ends the session its customer never started
+        // (Services/ClosedTicket).
+        \Eventy::addAction('conversation.status_changed', function ($conversation, $user, $changed_on_reply, $prev_status) {
+            if (ClosedTicket::ends($conversation->status, $changed_on_reply)) {
+                ClosedTicket::closeUnused($conversation, $conversation->status == \App\Conversation::STATUS_SPAM
+                    ? 'ticket marked as spam' : 'ticket closed');
+            }
+        }, 20, 4);
+
+        \Eventy::addAction('conversation.deleted', function ($conversation, $user) {
+            ClosedTicket::closeUnused($conversation, 'ticket deleted');
+        }, 20, 2);
 
         // Assets, served from the module's own public path.
         \Eventy::addFilter('javascripts', function ($javascripts) {

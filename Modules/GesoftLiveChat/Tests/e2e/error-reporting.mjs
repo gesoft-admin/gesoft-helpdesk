@@ -766,8 +766,13 @@ const convOffline = Number(rowOffline[1]);
 check('  in a conversation that will still be there later',
   one(`select state from conversations where id=${convOffline}`), '2');
 
+// Upsert rather than insert: an agent whose FreeScout tab is open beats their
+// own heartbeat back into this table while the scenario above is running, and
+// putting the desk back the way it was must not depend on nobody having done
+// that in the meantime.
 for (const [user, at] of presence) {
-  sql(`insert into gesoft_live_chat_agents (user_id, last_seen_at) values (${user}, '${at}')`);
+  sql(`insert into gesoft_live_chat_agents (user_id, last_seen_at) values (${user}, '${at}')
+       on duplicate key update last_seen_at=values(last_seen_at)`);
 }
 
 // ----------------------------------------- scenario 7: the late reply

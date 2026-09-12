@@ -179,6 +179,13 @@ with urllib.request.urlopen(urllib.request.Request(BASE + "/chat", headers={"Use
     page_status, page_html = page_resp.status, page_resp.read().decode()
 check("the chat page answers at /chat", page_status, 200)
 check("  with the bubble in page mode", 'data-display="page"' in page_html and "js/widget.js" in page_html, True)
+# The AGPL offer. This page has no FreeScout footer to make it in, so the
+# bubble makes it: the address is handed to the script tag and the window puts
+# a link at its foot. Only the attribute can be checked from here -- the link
+# itself is built inside a shadow root, which the browser suites read.
+source = re.search(r'data-source="([^"]+)"', page_html)
+check("  and the source the AGPL asks for", bool(source) and source.group(1).startswith("http"), True)
+check("  which is only ever http or https", bool(source) and " " not in source.group(1), True)
 
 # --------------------------------------------------------------- refusals say why
 artisan("cache:clear")

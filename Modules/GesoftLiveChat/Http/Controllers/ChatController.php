@@ -456,6 +456,7 @@ class ChatController extends Controller
         return response()->view('gesoftlivechat::page', $this->look() + [
             'lang'    => $lang,
             'title'   => (string) config('gesoftlivechat.page_title'),
+            'source'  => $this->sourceUrl(),
             // A new bubble reaches a visitor who has the page cached.
             'version' => is_file($script) ? filemtime($script) : 1,
         ])->withHeaders($this->pageHeaders());
@@ -495,6 +496,40 @@ class ChatController extends Controller
             'Referrer-Policy'        => 'strict-origin-when-cross-origin',
             'X-Content-Type-Options' => 'nosniff',
         ];
+    }
+
+    /**
+     * Where this instance's corresponding source lives, for the link at the
+     * foot of the chat window. Empty leaves the window without one.
+     *
+     * `source_ref` names what is running here and is appended as `/tree/<ref>`;
+     * see the settings in `Config/config.php` for why the offer is made on this
+     * page at all.
+     *
+     * Both values are checked here rather than trusted. They end up in an
+     * attribute and then in an `href`, so a mistyped `.env` must not be able to
+     * put `javascript:` or a quote there: only `http` or `https`, nothing that
+     * would end the attribute, and for the ref only the characters a git ref
+     * may contain.
+     */
+    protected function sourceUrl()
+    {
+        if (!config('gesoftlivechat.source_link')) {
+            return '';
+        }
+
+        $url = trim((string) config('gesoftlivechat.source_url'));
+        $ref = trim((string) config('gesoftlivechat.source_ref'));
+
+        if (!preg_match('~^https?://[^\s"\'<>]+$~', $url)) {
+            return '';
+        }
+
+        if ($ref !== '' && preg_match('~^[A-Za-z0-9][A-Za-z0-9._/-]*$~', $ref) && strpos($ref, '..') === false) {
+            return rtrim($url, '/').'/tree/'.$ref;
+        }
+
+        return $url;
     }
 
     /**

@@ -31,6 +31,7 @@
         @if ($title !== '') data-title="{{ $title }}" @endif
         @if ($color !== '') data-color="{{ $color }}" @endif
         @if ($theme !== '') data-theme="{{ $theme }}" @endif
-        @if ($sheet !== '') data-stylesheet="{{ $sheet }}" @endif></script>
+        @if ($sheet !== '') data-stylesheet="{{ $sheet }}" @endif
+        @if ($source !== '') data-source="{{ $source }}" @endif></script>
 </body>
 </html>

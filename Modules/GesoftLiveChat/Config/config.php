@@ -277,4 +277,27 @@ return [
      * would be asking somebody to introduce themselves twice.
      */
     'require_email' => env('GESOFT_LIVE_CHAT_REQUIRE_EMAIL', true),
+
+    /**
+     * The source link at the foot of the chat window on `/chat`, and where it
+     * points.
+     *
+     * The AGPL asks that people who use the software over a network be offered
+     * its source. Everywhere else in this helpdesk that offer is in FreeScout's
+     * footer, which `/chat` does not have: it is served outside the `web`
+     * middleware group and is the one page a stranger uses without ever seeing
+     * a FreeScout page. So it makes the offer itself.
+     *
+     * `HELPDESK_SOURCE_URL` and `HELPDESK_SOURCE_LINK` are the same two
+     * settings `GesoftBranding` reads for the footer link -- one value, two
+     * readers, so an operator who points one at their fork has pointed both.
+     *
+     * `source_ref` is the tag or commit this instance was built from, appended
+     * as `/tree/<ref>`, which is how GitHub, GitLab, Gitea and Forgejo all
+     * address a ref. Empty points at the repository instead, which is a weaker
+     * offer: it says where the source lives, not which of it is running here.
+     */
+    'source_url'  => env('HELPDESK_SOURCE_URL', 'https://github.com/gesoft-admin/gesoft-helpdesk'),
+    'source_ref'  => env('HELPDESK_SOURCE_REF', ''),
+    'source_link' => env('HELPDESK_SOURCE_LINK', true),
 ];

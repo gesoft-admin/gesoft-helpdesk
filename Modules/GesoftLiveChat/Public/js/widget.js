@@ -82,6 +82,7 @@
             errBlocked: 'Chatul nu este disponibil. Ne puteți scrie la {contact}.',
             errBlockedNoContact: 'Chatul nu este disponibil. Vă rugăm să ne contactați altfel.',
             errUnavailable: 'Chatul nu este disponibil momentan.',
+            sourceTitle: 'Codul sursă al acestui helpdesk (AGPL-3.0)',
             errNetwork: 'Nu am putut trimite. Verificați conexiunea.',
             errGeneric: 'Mesajul nu a putut fi trimis. Încercați din nou.'
         },
@@ -127,6 +128,7 @@
             errBlocked: 'Chat is not available. You can write to us at {contact}.',
             errBlockedNoContact: 'Chat is not available. Please contact us another way.',
             errUnavailable: 'Chat is not available right now.',
+            sourceTitle: 'The source code of this helpdesk (AGPL-3.0)',
             errNetwork: 'Could not send. Please check your connection.',
             errGeneric: 'The message could not be sent. Please try again.'
         }
@@ -173,6 +175,16 @@
     // start, with no launcher and nothing to close — for the /chat page, which
     // is linked to rather than embedded.
     var PAGE = attr('data-display') === 'page';
+
+    // data-source: where this instance's source lives, offered at the foot of
+    // the chat window on the /chat page. The AGPL asks that people who use the
+    // software over a network be offered it, and that page has no FreeScout
+    // footer to make the offer in. The helpdesk composes the address; this
+    // checks it again before writing it into an href, because the bubble also
+    // runs on sites we do not serve, where the attribute is the site's to set.
+    var SOURCE = (function (href) {
+        return /^https?:\/\/[^\s"'<>]+$/i.test(href) ? href : '';
+    })(attr('data-source') || '');
 
     // Identity the host page already knows. An application where the customer
     // is signed in should hand it over rather than make them introduce
@@ -355,6 +367,10 @@
         '.wrap.page .panel { display: flex; top: 0; left: 0; right: 0; bottom: 0; margin: auto; width: 760px; max-width: 100vw; height: 860px; max-height: 100%; }',
         '@media (max-height: 860px) { .wrap.page .panel { height: 100%; border-radius: 0; border-top: 0; border-bottom: 0; } }',
         '@media (max-width: 760px) { .wrap.page .panel { width: 100vw; height: 100%; border-radius: 0; border: 0; } }',
+        '.src { padding: 2px 12px 8px; text-align: center; background: var(--bg); }',
+        '.src a { font-size: 11px; color: var(--muted); text-decoration: none; }',
+        '.src a:hover { text-decoration: underline; }',
+        '.src a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }',
         '[hidden] { display: none !important; }',
         '@media (prefers-reduced-motion: reduce) { .launcher { transition: none; } }',
         '</style>',
@@ -396,6 +412,12 @@
         '    <textarea rows="1" maxlength="4000"></textarea>',
         '    <button class="send" type="submit">' + ICON_SEND + '</button>',
         '  </form>',
+        // Only on the /chat page, and only when the helpdesk gave an address:
+        // an embedded bubble is a guest on somebody else's page and adds
+        // nothing to it. "Open Source" reads the same in both languages, so it
+        // is the one label here that is not translated; what it means is in the
+        // title, which words() sets.
+        (PAGE && SOURCE ? '  <div class="src"><a href="' + SOURCE + '" target="_blank" rel="noopener noreferrer">Open Source</a></div>' : ''),
         '</section>',
         '</div>'
     ].join('');
@@ -452,6 +474,7 @@
         input.setAttribute('placeholder', T.placeholder);
         input.setAttribute('aria-label', T.message);
         sendBtn.setAttribute('aria-label', T.send);
+        if ($('.src a')) { $('.src a').setAttribute('title', T.sourceTitle); }
         paintStatus();
     }
 

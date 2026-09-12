@@ -10,11 +10,13 @@ use Illuminate\Cache\RateLimiter;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\GesoftLiveChat\Entities\AgentPresence;
+use Modules\GesoftLiveChat\Entities\AppConversation;
 use Modules\GesoftLiveChat\Entities\AppSession;
 use Modules\GesoftLiveChat\Entities\ChatBlock;
 use Modules\GesoftLiveChat\Entities\ChatReceipt;
 use Modules\GesoftLiveChat\Entities\ChatSession;
 use Modules\GesoftLiveChat\Support\Apps;
+use Modules\GesoftLiveChat\Support\Message;
 use Modules\GesoftLiveChat\Support\Origin;
 use Modules\GesoftLiveChat\Support\Presence;
 use Modules\GesoftLiveChat\Support\Typing;
@@ -209,6 +211,8 @@ class ChatController extends Controller
         // opening a second: two live chats for one person are two places for an
         // agent to answer and one the person cannot see.
         if ($conversation = $identity->openConversation()) {
+            $identity->takeConversation($conversation->id);
+
             list(, $token) = ChatSession::open($conversation, $request->ip(), $lang);
             $request->merge(['token' => $token]);
 
@@ -259,11 +263,11 @@ class ChatController extends Controller
         $conversation = $result['conversation'];
         $this->makeActive($conversation);
 
-        // What "the chat this person is in" means from now on. Filed against
-        // the identity and not against the customer, because two application
+        // What "the chat this person is in" means from now on, and the row
+        // that will let them find it again next month. Filed against the
+        // identity and not against the customer, because two application
         // accounts sharing an email address share a customer.
-        $identity->conversation_id = $conversation->id;
-        $identity->save();
+        $identity->takeConversation($conversation->id);
 
         list(, $token) = ChatSession::open($conversation, $request->ip(), $lang);
 
@@ -496,6 +500,15 @@ class ChatController extends Controller
                     $typing = ['name' => $name !== '' ? $name : null];
                 }
             }
+        }
+
+        // What the bubble says it has on screen also moves this person's own
+        // unread pointer, if this conversation belongs to an application
+        // identity. Deliberately outside the `receipts` switch below: that one
+        // governs whether ticks are *shown*, and turning ticks off must not
+        // leave somebody's unread count stuck at "everything" for good.
+        if ($open) {
+            AppConversation::sawUpToByConversation($conversation->id, $request->input('seen'));
         }
 
         $receipts = null;
@@ -1003,14 +1016,7 @@ class ChatController extends Controller
      */
     protected function body(Request $request)
     {
-        $raw = trim((string) $request->input('message', ''));
-        if ($raw === '') {
-            return null;
-        }
-
-        $raw = mb_substr($raw, 0, self::MAX_BODY);
-
-        return nl2br(htmlspecialchars($raw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), false);
+        return Message::store($request->input('message', ''), self::MAX_BODY);
     }
 
     /**
@@ -1022,9 +1028,7 @@ class ChatController extends Controller
      */
     protected function flatten($html)
     {
-        $text = \Helper::htmlToText((string) $html);
-
-        return trim(html_entity_decode($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+        return Message::text($html);
     }
 
     /**

@@ -343,6 +343,29 @@ return [
     'app_rate_per_minute' => env('GESOFT_LIVE_CHAT_APP_RATE_PER_MINUTE', 120),
 
     /**
+     * Whether a signed-in application user gets a history: their earlier
+     * conversations, what state each is in, and an unread count that survives
+     * closing the browser.
+     *
+     * Off leaves the chat exactly as it was without one -- the panel shows no
+     * history control and every history route answers 404 -- while the rows
+     * that say which conversation belongs to whom go on being written. That
+     * asymmetry is deliberate: switching this back on then finds a history that
+     * is complete, rather than one with a hole in it the size of however long
+     * it was off.
+     */
+    'history' => env('GESOFT_LIVE_CHAT_HISTORY', true),
+
+    /**
+     * How many conversations the history shows at once.
+     *
+     * A page rather than everything: the list is read on a phone as often as
+     * not, and a customer with two years of tickets should not wait for all of
+     * them to find last week's. The panel says when there are more.
+     */
+    'history_limit' => env('GESOFT_LIVE_CHAT_HISTORY_LIMIT', 20),
+
+    /**
      * How many conversations one application identity may open, and over how
      * many minutes. Zero switches it off.
      *

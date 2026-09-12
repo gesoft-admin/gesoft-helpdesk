@@ -59,6 +59,15 @@ Route::group([
     // visitor's token cannot already do and names no conversation of its own.
     Route::post('/app/resume', 'AppController@resume')->name('gesoftlivechat.app.resume');
 
+    // The customer's own conversations: the list, one of them, a reply into
+    // one, and how far they have read it. Every one of these is authorised
+    // through the identity's explicit mapping, never through the customer and
+    // never through an address -- see `Entities/AppConversation.php`.
+    Route::post('/app/history', 'AppController@history')->name('gesoftlivechat.app.history');
+    Route::post('/app/conversation', 'AppController@conversation')->name('gesoftlivechat.app.conversation');
+    Route::post('/app/reply', 'AppController@reply')->name('gesoftlivechat.app.reply');
+    Route::post('/app/seen', 'AppController@seen')->name('gesoftlivechat.app.seen');
+
     // The demo page, which is a test harness rather than a product: it hosts
     // the bubble on this server so the transport can be exercised end to end
     // before anybody embeds it on a real site. Off unless dev tools are on.
@@ -94,6 +103,12 @@ Route::group([
     'namespace'  => 'Modules\GesoftLiveChat\Http\Controllers',
 ], function () {
     Route::post('/app/session', 'AppController@session')->name('gesoftlivechat.app.session');
+
+    // Two integers for the application's own button, on a page where the panel
+    // was never opened. It mints nothing: a badge needs a count, not a
+    // permission, and handing out the second to draw the first would be a
+    // credential issued on every page view.
+    Route::post('/app/unread', 'AppController@unreadCount')->name('gesoftlivechat.app.unread');
 });
 
 /**

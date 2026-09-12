@@ -34,6 +34,33 @@ class AppIdentity extends Model
         return $this->belongsTo(\App\Conversation::class);
     }
 
+    public function conversations()
+    {
+        return $this->hasMany(AppConversation::class, 'identity_id');
+    }
+
+    /**
+     * Take ownership of a conversation: record it in the history and make it
+     * the one this person is in.
+     *
+     * The two are written together on purpose. `conversation_id` alone was
+     * enough while an identity only ever had the chat it was in; the moment
+     * there is a history, a pointer with no row behind it is a conversation
+     * nobody can reach afterwards, and a row with no pointer is a chat that has
+     * stopped being current without anybody saying so.
+     */
+    public function takeConversation($conversation_id)
+    {
+        $link = AppConversation::link($this, $conversation_id);
+
+        if ($this->conversation_id != $conversation_id) {
+            $this->conversation_id = $conversation_id;
+            $this->save();
+        }
+
+        return $link;
+    }
+
     /**
      * The chat this identity is in, if there is one and it is still open.
      *

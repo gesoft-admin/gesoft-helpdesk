@@ -4,10 +4,16 @@ namespace Modules\GesoftLiveChat\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use App\Conversation;
+use App\Thread;
+use Modules\GesoftLiveChat\Entities\AppConversation;
 use Modules\GesoftLiveChat\Entities\AppIdentity;
 use Modules\GesoftLiveChat\Entities\AppSession;
 use Modules\GesoftLiveChat\Entities\ChatSession;
 use Modules\GesoftLiveChat\Support\Apps;
+use Modules\GesoftLiveChat\Support\History;
+use Modules\GesoftLiveChat\Support\Message;
+use Modules\GesoftLiveChat\Support\Presence;
 
 /**
  * Chat for somebody an application has already signed in.
@@ -126,9 +132,14 @@ class AppController extends Controller
         $answerable = (bool) $customer->getMainEmail();
 
         $conversation = $identity->openConversation();
+        $unread = $this->unread($identity);
 
         if (!$conversation) {
-            return response()->json(['status' => 'success', 'chat' => null, 'offline' => $answerable]);
+            return response()->json([
+                'status'  => 'success',
+                'chat'    => null,
+                'offline' => $answerable,
+            ] + $unread);
         }
 
         list(, $token) = ChatSession::reopen($conversation, $session->ip, null);
@@ -136,6 +147,7 @@ class AppController extends Controller
         return response()->json([
             'status'  => 'success',
             'offline' => $answerable,
+        ] + $unread + [
             'chat'    => [
                 'token' => $token,
                 // From the beginning: the panel is being opened on a page that
@@ -147,7 +159,346 @@ class AppController extends Controller
         ]);
     }
 
+    /**
+     * How much this person has not read — and nothing else.
+     *
+     * Server to server, like `session`, and for a reason worth stating: the
+     * application's own button has to be able to carry a badge on a page where
+     * the panel was never opened, and minting a permission for that would be
+     * handing out a credential to draw a number. This mints nothing, writes
+     * nothing and returns two integers.
+     *
+     * An identity nothing has ever heard of is not an error either: it is a
+     * person who has never written to us, and the honest answer is zero.
+     */
+    public function unreadCount(Request $request)
+    {
+        $register = $this->register();
+        $provider = (string) $request->input('provider', '');
+
+        $app = Apps::authenticate($register, $provider, $this->bearer($request));
+
+        if (!$app) {
+            return $this->fail('unauthorized', 401);
+        }
+
+        $external_id = Apps::externalId($request->input('external_user_id'));
+
+        if ($external_id === null) {
+            return $this->fail('invalid_identity', 422);
+        }
+
+        $identity = AppIdentity::where('provider', Apps::provider($provider))
+            ->where('external_id', $external_id)
+            ->first();
+
+        if (!$identity || !$identity->customer) {
+            return response()->json([
+                'status'  => 'success',
+                'unread'  => ['conversations' => 0, 'messages' => 0],
+                'history' => false,
+            ]);
+        }
+
+        return response()->json(['status' => 'success'] + $this->unread($identity));
+    }
+
+    /**
+     * This identity's conversations, newest activity first.
+     *
+     * Only what a customer may be told: a subject, when it last moved, what to
+     * call its state, and how many answers they have not read. Never the
+     * assignee, never a note, never a custom field, never another customer's
+     * address — none of which is in the answer at all rather than being
+     * filtered out of it downstream.
+     *
+     * Reading this list marks nothing read. Somebody glancing at a row has not
+     * read the answer inside it, and the badge would be lying by the time they
+     * looked away.
+     */
+    public function history(Request $request)
+    {
+        if (!config('gesoftlivechat.history')) {
+            abort(404);
+        }
+
+        $session = $this->appSession($request);
+        $identity = $session ? $session->identity() : null;
+
+        if (!$identity || !$identity->customer) {
+            return $this->fail('unauthorized', 401);
+        }
+
+        $limit = (int) config('gesoftlivechat.history_limit') ?: 20;
+
+        // Read once, use twice. The page shows the newest few; the badge counts
+        // all of them, and asking the database a second time for rows already
+        // in hand is how a list that is fast with three conversations stops
+        // being fast with sixty.
+        list($links, $conversations) = $this->owned($identity);
+        $unread = AppConversation::unreadCounts($links);
+
+        $page = $conversations->sortByDesc(function ($conversation) {
+            return $conversation->last_reply_at ? $conversation->last_reply_at->getTimestamp() : 0;
+        })->take($limit)->values();
+
+        $current = (int) $identity->conversation_id;
+
+        $items = [];
+        foreach ($page as $conversation) {
+            $items[] = [
+                'id'      => $conversation->id,
+                'subject' => mb_substr((string) $conversation->getSubject(), 0, 160),
+                'status'  => History::statusKey($conversation->status),
+                'at'      => $conversation->last_reply_at ? $conversation->last_reply_at->toIso8601String() : null,
+                'unread'  => (int) ($unread[$conversation->id] ?? 0),
+                // Whether this is the chat they are in now, so the panel can
+                // say so rather than making them work it out from the date.
+                'current' => $conversation->id === $current,
+                // Whether writing into it is still possible. Deliberately not
+                // called "open": a *closed* conversation can be replied to, and
+                // that is the whole point of a history.
+                'can_reply' => History::canReply($conversation->status, $conversation->state),
+            ];
+        }
+
+        return response()->json([
+            'status'        => 'success',
+            'conversations' => $items,
+            // True when there is more than the page shows, so the panel can say
+            // so rather than quietly pretending this is everything.
+            'more'          => $conversations->count() > $page->count(),
+            'unread'        => History::totals($unread),
+            'history'       => $links->isNotEmpty(),
+        ]);
+    }
+
+    /**
+     * One conversation of this identity's, with the messages a customer may
+     * read.
+     *
+     * The same answer for a conversation that is somebody else's and for one
+     * that does not exist. Telling the two apart would turn this into a way of
+     * finding out which ids are real, and the panel has no use for the
+     * difference.
+     */
+    public function conversation(Request $request)
+    {
+        if (!config('gesoftlivechat.history')) {
+            abort(404);
+        }
+
+        $session = $this->appSession($request);
+        $identity = $session ? $session->identity() : null;
+
+        if (!$identity || !$identity->customer) {
+            return $this->fail('unauthorized', 401);
+        }
+
+        $link = AppConversation::owned($identity, $request->input('conversation_id'));
+
+        if (!$link) {
+            return $this->fail('not_found', 404);
+        }
+
+        $conversation = $link->conversation;
+        $threads = AppConversation::visibleThreads($conversation->id)->get();
+
+        $messages = [];
+        foreach ($threads as $thread) {
+            $agent = (int) $thread->type === History::AGENT_TYPE;
+            $messages[] = [
+                'id'     => $thread->id,
+                'from'   => $agent ? 'agent' : 'visitor',
+                // First name only, exactly as the live chat does: enough to
+                // know who is talking, nothing an agent would rather keep.
+                'author' => $agent && $thread->created_by_user_cached ? $thread->created_by_user_cached->first_name : null,
+                'body'   => Message::text($thread->body),
+                'at'     => $thread->created_at ? $thread->created_at->toIso8601String() : null,
+            ];
+        }
+
+        return response()->json([
+            'status'  => 'success',
+            'id'      => $conversation->id,
+            'subject' => mb_substr((string) $conversation->getSubject(), 0, 160),
+            'status_key' => History::statusKey($conversation->status),
+            'can_reply' => History::canReply($conversation->status, $conversation->state),
+            'current' => (int) $identity->conversation_id === (int) $conversation->id,
+            'messages' => $messages,
+        ]);
+    }
+
+    /**
+     * Write into a conversation from the history, reopening it if it was
+     * closed.
+     *
+     * The reopening is core's, not ours. `Thread::createExtended` has read
+     * "reply from customer makes conversation active" since long before this
+     * module existed: it moves the status, moves the conversation out of the
+     * Closed folder, updates the counters and tells every listener. Doing any
+     * of that here as well would be a second opinion about a rule that already
+     * has one.
+     *
+     * What is ours is the refusal. Core's mail path will not let a reply
+     * revive a conversation an agent marked spam, and neither will this; a
+     * deleted one is the same. `History::canReply` is that rule.
+     *
+     * On the way out the conversation becomes this person's current chat and
+     * gets a session token, so the panel carries straight on in live chat
+     * rather than making them find it again.
+     */
+    public function reply(Request $request)
+    {
+        if (!config('gesoftlivechat.history')) {
+            abort(404);
+        }
+
+        $lang = Presence::lang($request->input('lang'), (string) config('gesoftlivechat.visitor_lang', 'ro'));
+
+        $session = $this->appSession($request);
+        $identity = $session ? $session->identity() : null;
+
+        if (!$identity || !$identity->customer) {
+            return $this->fail('unauthorized', 401);
+        }
+
+        $link = AppConversation::owned($identity, $request->input('conversation_id'));
+
+        if (!$link) {
+            return $this->fail('not_found', 404);
+        }
+
+        $conversation = $link->conversation;
+
+        if (!History::canReply($conversation->status, $conversation->state)) {
+            return $this->fail('closed', 409);
+        }
+
+        $body = Message::store($request->input('message'));
+
+        if ($body === null) {
+            return $this->fail('empty', 400);
+        }
+
+        $thread = Thread::createExtended(
+            [
+                'type'  => Thread::TYPE_CUSTOMER,
+                'body'  => $body,
+                'state' => Thread::STATE_PUBLISHED,
+            ],
+            $conversation,
+            $identity->customer
+        );
+
+        if (!$thread) {
+            return $this->fail('unavailable', 503);
+        }
+
+        // Their own message is not something they have to read, so the pointer
+        // moves past everything already written. Anything an agent says next
+        // is unread again.
+        $link->sawUpTo(PHP_INT_MAX);
+
+        $identity->takeConversation($conversation->id);
+        list(, $token) = ChatSession::reopen($conversation->fresh(), $session->ip, $lang);
+
+        \Log::info(self::LOG_PREFIX.': conversation continued from the history', [
+            'conversation_id' => $conversation->id,
+            'provider'        => $identity->provider,
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'chat'   => ['token' => $token, 'since' => 0],
+            'id'     => $thread->id ?? 0,
+        ]);
+    }
+
+    /**
+     * This person has read a conversation up to a message.
+     *
+     * Called when the panel has actually drawn the messages, never when it has
+     * merely listed the conversation. Forward only.
+     */
+    public function seen(Request $request)
+    {
+        if (!config('gesoftlivechat.history')) {
+            abort(404);
+        }
+
+        $session = $this->appSession($request);
+        $identity = $session ? $session->identity() : null;
+
+        if (!$identity || !$identity->customer) {
+            return $this->fail('unauthorized', 401);
+        }
+
+        $link = AppConversation::owned($identity, $request->input('conversation_id'));
+
+        if (!$link) {
+            return $this->fail('not_found', 404);
+        }
+
+        $link->sawUpTo($request->input('seen'));
+
+        return response()->json(['status' => 'success'] + $this->unread($identity));
+    }
+
     // ------------------------------------------------------------- internals
+
+    /**
+     * How much this identity has not read, across everything they own.
+     *
+     * Cheap enough for every bootstrap: the rows are this identity's alone and
+     * the messages are counted in one query. It is what lets the application's
+     * own button carry a badge before the panel has been opened at all.
+     */
+    protected function unread(AppIdentity $identity)
+    {
+        list($links, ) = $this->owned($identity);
+
+        return [
+            'unread'  => History::totals(AppConversation::unreadCounts($links)),
+            'history' => $links->isNotEmpty(),
+        ];
+    }
+
+    /**
+     * This identity's conversations: the mapping rows, and the conversations
+     * themselves, in two queries whatever the number of them.
+     *
+     * Returns `[$links, $conversations]`, both already filtered to what this
+     * person may actually be shown — the mapping is the boundary, and the
+     * customer still has to match, because an agent moving a conversation to
+     * somebody else takes it out of this history.
+     */
+    protected function owned(AppIdentity $identity)
+    {
+        if (!config('gesoftlivechat.history')) {
+            return [collect(), collect()];
+        }
+
+        $links = AppConversation::where('identity_id', $identity->id)->get();
+
+        if ($links->isEmpty()) {
+            return [$links, collect()];
+        }
+
+        $conversations = Conversation::whereIn('id', $links->pluck('conversation_id')->all())
+            ->where('customer_id', $identity->customer_id)
+            ->get()
+            ->filter(function ($conversation) {
+                return History::isVisible($conversation->status, $conversation->state);
+            })
+            ->keyBy('id');
+
+        $links = $links->filter(function ($link) use ($conversations) {
+            return $conversations->has($link->conversation_id);
+        })->values();
+
+        return [$links, $conversations->values()];
+    }
 
     /** The registered applications, as `Support/Apps.php` will have them. */
     protected function register()

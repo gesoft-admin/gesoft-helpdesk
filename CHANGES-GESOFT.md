@@ -228,9 +228,16 @@ A later commit widened the environment-file rule. Upstream ignores `.env` and
 `.env.local` or `.env.production` holds exactly the same credentials. Every
 variant is ignored now, with the three committed templates named back in.
 
-That is the only file outside `Modules/`, `public/brand/` and `scripts/` that
-this fork modifies. Nothing else in core is touched: no UI rewrite, no Laravel
-internals, no ticket engine, no auth, no schema.
+### `SECURITY.md`
+
+One bullet added: a vulnerability in this fork's own modules is reported through
+this repository's advisories, not to upstream, who cannot fix code they do not
+ship. Upstream's two lines are left exactly as they are.
+
+Together with `.gitignore` these are the only files outside `Modules/`,
+`public/brand/` and `scripts/` that this fork modifies. Nothing else in core is
+touched: no UI rewrite, no Laravel internals, no ticket engine, no auth, no
+schema.
 
 ## Tooling
 
@@ -250,6 +257,7 @@ product in particular rather than like someone else's.
 
 ## Not here
 
-RustDesk, the `helpdesk-rust` service, and Live Helper Chat are separate
-components with their own repositories and their own licences. See
+RustDesk and the `helpdesk-rust` service are separate components with their own
+repositories and their own licences. Live Helper Chat is not a component at all
+— it was read as a reference and nothing here depends on it. See
 [`SOURCE-COMPLIANCE.md`](SOURCE-COMPLIANCE.md).

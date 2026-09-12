@@ -63,11 +63,13 @@ described in [`docs/architecture/remote-support.md`](docs/architecture/remote-su
 
 ### Live Helper Chat
 
-The customer chat, a separate application under **Apache-2.0**, with its own
-database and its own operator interface. It is not copied here. A future
-FreeScout-side bridge module would be part of this repository and therefore
-AGPL-3.0; an extension living inside Live Helper Chat would belong to its own
-repository under its own terms. See
+Not a component of this system, and worth saying so because an earlier design
+made it one. The customer chat is `Modules/GesoftLiveChat` in this repository,
+AGPL-3.0 like the rest of the fork; nothing here talks to Live Helper Chat and
+no line of its code is copied. It is a separate project under **Apache-2.0**
+whose source was read as a reference for behaviour — polling intervals, the
+offline form, receipts, bans. Reading a project is not using it, and it imposes
+no obligation here. See
 [`docs/architecture/live-chat.md`](docs/architecture/live-chat.md).
 
 ## Summary
@@ -75,7 +77,7 @@ repository under its own terms. See
 | component | where | licence |
 |---|---|---|
 | FreeScout core + Gesoft modules | this repository | AGPL-3.0 |
+| Live chat (`Modules/GesoftLiveChat`) | this repository | AGPL-3.0 |
 | RustDesk client/server | `gesoft-admin/rustdesk` | AGPL-3.0 |
 | `helpdesk-rust` service | separate repository | not set by this repository |
-| Live Helper Chat | upstream project | Apache-2.0 |
 | Branding assets | supplied by the operator | not licensed here |

@@ -458,7 +458,43 @@ class ChatController extends Controller
             'title'   => (string) config('gesoftlivechat.page_title'),
             // A new bubble reaches a visitor who has the page cached.
             'version' => is_file($script) ? filemtime($script) : 1,
-        ]);
+        ])->withHeaders($this->pageHeaders());
+    }
+
+    /**
+     * What the browser is allowed to do on the chat page.
+     *
+     * This page is public, unauthenticated and, unlike the rest of FreeScout,
+     * served outside the `web` middleware group -- so core's own policy never
+     * reaches it. Everything it legitimately needs belongs to this origin: one
+     * script, the instance's stylesheet, and the endpoints the bubble polls.
+     * Anything else -- a script from somewhere else, a form posting away, an
+     * iframe of this page on another site -- is refused by the browser rather
+     * than noticed by us afterwards.
+     *
+     * `'unsafe-inline'` for styles is not a concession to a library: the page's
+     * ground colour is an inline `<style>` and the bubble writes its own
+     * stylesheet into its shadow root. Neither of them is script.
+     */
+    protected function pageHeaders()
+    {
+        return [
+            'Content-Security-Policy' => implode('; ', [
+                "default-src 'none'",
+                "script-src 'self'",
+                "style-src 'self' 'unsafe-inline'",
+                "img-src 'self' data:",
+                "font-src 'self'",
+                // The bubble's own endpoints, on this helpdesk.
+                "connect-src 'self'",
+                "base-uri 'none'",
+                "form-action 'self'",
+                // The rule X-Frame-Options states for older browsers.
+                "frame-ancestors 'self'",
+            ]),
+            'Referrer-Policy'        => 'strict-origin-when-cross-origin',
+            'X-Content-Type-Options' => 'nosniff',
+        ];
     }
 
     /**

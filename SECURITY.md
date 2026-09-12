@@ -6,6 +6,10 @@ Read about **[FreeScout's Security](https://freescout.net/security/)**.
 
   * Report a security vulnerability in the **Application Core**: https://github.com/freescout-help-desk/freescout/security/advisories
   * Report a security vulnerability in a **Module**: https://freescout.net/contact-us/
+  * Report a security vulnerability in a **module of this fork** (`Modules/Gesoft*`, under
+    `Modules/` in this repository): https://github.com/gesoft-admin/gesoft-helpdesk/security/advisories
+    — upstream cannot fix code it does not ship, and this line exists so a
+    finding in our code does not go to them and stall.
 
 ## Guidelines
 

@@ -12,6 +12,7 @@ use Modules\GesoftLiveChat\Entities\AgentPresence;
 use Modules\GesoftLiveChat\Entities\ChatBlock;
 use Modules\GesoftLiveChat\Entities\ChatReceipt;
 use Modules\GesoftLiveChat\Entities\ChatSession;
+use Modules\GesoftLiveChat\Entities\ErrorReport;
 use Modules\GesoftLiveChat\Support\Blocking;
 use Modules\GesoftLiveChat\Support\Presence;
 use Modules\GesoftLiveChat\Support\Typing;
@@ -37,6 +38,54 @@ class AgentController extends Controller
     public function __construct()
     {
         $this->middleware('auth');
+    }
+
+    /**
+     * Hand an agent the diagnostic report an application sent.
+     *
+     * The reason this action exists at all is that core's attachments would not
+     * do. They sit on the private disk, but `OpenController@downloadAttachment`
+     * serves them to anybody at all -- no session, no agent, no mailbox, just an
+     * HMAC in the query string. A link forwarded once is a link that works
+     * forever, for whoever ends up holding it. For a customer's screenshot in an
+     * email thread that is a fair trade. For a file describing the inside of a
+     * running application it is not, so these are asked for here instead, and
+     * here the question is the one the conversation view asks: may *you*, the
+     * agent signed in right now, open this conversation?
+     *
+     * Everything else about the response is fixed by us rather than by anything
+     * in the file: its name, its type, and that a browser will save it instead
+     * of rendering it. There is no MIME sniffing to talk round and no filename
+     * the caller has ever had a say in.
+     */
+    public function diagnostic(Request $request, $id)
+    {
+        if (!config('gesoftlivechat.error_reports')) {
+            abort(404);
+        }
+
+        $report = ErrorReport::findOrFail($id);
+        $conversation = Conversation::findOrFail($report->conversation_id);
+
+        // The permission, not the link, is what decides. An agent without this
+        // conversation gets the policy's own refusal.
+        $this->authorize('viewCached', $conversation);
+
+        if (!$report->exists()) {
+            // Swept, or never written. Not a server fault and not worth a stack
+            // trace: the note is still there, saying which incident it was.
+            abort(404);
+        }
+
+        return response()->download(
+            \Storage::disk(ErrorReport::DISK)->path($report->storagePath()),
+            $report->filename(),
+            [
+                'Content-Type'            => \Modules\GesoftLiveChat\Support\Diagnostic::MIME,
+                'X-Content-Type-Options'  => 'nosniff',
+                'Cache-Control'           => 'private, no-store',
+            ]
+        );
     }
 
     /**

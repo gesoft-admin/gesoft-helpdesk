@@ -109,6 +109,12 @@ Route::group([
     // permission, and handing out the second to draw the first would be a
     // credential issued on every page view.
     Route::post('/app/unread', 'AppController@unreadCount')->name('gesoftlivechat.app.unread');
+
+    // A diagnostic report about a fault in the application, from that
+    // application's server. It is not an upload endpoint and must never become
+    // one: the body has to be a report in the shape `Support/Diagnostic.php`
+    // describes, and anything else is refused rather than stored.
+    Route::post('/app/error-report', 'AppController@errorReport')->name('gesoftlivechat.app.error_report');
 });
 
 /**
@@ -173,4 +179,11 @@ Route::group([
     Route::post('/gesoft-live-chat/blocks/{id}/delete', [
         'uses' => 'AgentController@unblock',
     ])->name('gesoftlivechat.agent.unblock');
+
+    // The one way a diagnostic report is ever read. Session, `auth` in the
+    // controller, and the conversation's own policy -- deliberately not core's
+    // attachment route, which asks for none of the three.
+    Route::get('/gesoft-live-chat/diagnostic/{id}', [
+        'uses' => 'AgentController@diagnostic',
+    ])->name('gesoftlivechat.agent.diagnostic');
 });

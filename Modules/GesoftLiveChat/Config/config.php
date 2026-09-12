@@ -366,6 +366,46 @@ return [
     'history_limit' => env('GESOFT_LIVE_CHAT_HISTORY_LIMIT', 20),
 
     /**
+     * Whether this helpdesk accepts diagnostic reports from applications.
+     *
+     * Off, every call to `app/error-report` answers 404 and the module stores
+     * no reports and writes no notes. Everything 2A and 2C do is untouched --
+     * chat, history, unread and the conversations themselves know nothing about
+     * this feature, which is the point of it having a switch of its own.
+     *
+     * Reports already filed stay where they are. They are part of the
+     * conversations agents have had, and a switch turned off today is not a
+     * reason to take yesterday's evidence away.
+     */
+    'error_reports' => env('GESOFT_LIVE_CHAT_ERROR_REPORTS', true),
+
+    /**
+     * The largest report this helpdesk will keep, in bytes.
+     *
+     * The application already caps what it builds; this is the ceiling on what
+     * we agree to store, which is a separate question and belongs on this side
+     * of the boundary. 64 KiB is a great deal of text about one fault -- the
+     * reports the application actually sends are a few kilobytes -- and it is
+     * far below anything that would make a note slow to open.
+     */
+    'diagnostic_max_bytes' => env('GESOFT_LIVE_CHAT_DIAGNOSTIC_MAX_BYTES', 65536),
+
+    /**
+     * How many reports one application identity may file, and over how many
+     * minutes.
+     *
+     * A screen stuck in an error loop, with a real person pressing the button
+     * each time it reloads, is the case this is sized for: enough that a person
+     * reporting a run of genuinely different faults in a sitting is never
+     * refused, not enough for a loop to fill a mailbox.
+     *
+     * It is its own budget rather than a share of the chat's. Being unable to
+     * report a fault must not leave somebody unable to write about it.
+     */
+    'error_report_limit'  => env('GESOFT_LIVE_CHAT_ERROR_REPORT_LIMIT', 20),
+    'error_report_window' => env('GESOFT_LIVE_CHAT_ERROR_REPORT_WINDOW', 10),
+
+    /**
      * How many conversations one application identity may open, and over how
      * many minutes. Zero switches it off.
      *

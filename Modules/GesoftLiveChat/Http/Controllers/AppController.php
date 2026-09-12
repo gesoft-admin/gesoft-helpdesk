@@ -10,7 +10,9 @@ use Modules\GesoftLiveChat\Entities\AppConversation;
 use Modules\GesoftLiveChat\Entities\AppIdentity;
 use Modules\GesoftLiveChat\Entities\AppSession;
 use Modules\GesoftLiveChat\Entities\ChatSession;
+use Modules\GesoftLiveChat\Entities\ErrorReport;
 use Modules\GesoftLiveChat\Support\Apps;
+use Modules\GesoftLiveChat\Support\Diagnostic;
 use Modules\GesoftLiveChat\Support\History;
 use Modules\GesoftLiveChat\Support\Message;
 use Modules\GesoftLiveChat\Support\Presence;
@@ -445,7 +447,322 @@ class AppController extends Controller
         return response()->json(['status' => 'success'] + $this->unread($identity));
     }
 
+    /**
+     * A diagnostic report from an application's server.
+     *
+     * Server to server, on the same secret and the same boundary as `session`:
+     * a browser never calls this, never sees the report and never had the
+     * chance to write one. What arrives is what the application's own error
+     * handler assembled out of its own internals, about an incident it had
+     * already logged before anybody clicked anything.
+     *
+     * Two things happen, and the customer sees exactly one of them. In the
+     * conversation there is a line saying a report was sent, with the incident
+     * on it, which is the part the person who pressed the button needs: proof
+     * that the thing they did had an effect, and a number to quote. Beside it
+     * is an internal note -- an agent's to read, invisible in `app/history`,
+     * `app/conversation` and the chat poll alike -- linking to the file.
+     *
+     * Which conversation is 2C's question, answered 2C's way: the chat this
+     * identity is already in, if it is still open, and otherwise a new one. A
+     * closed conversation stays closed. A report about today's fault is not a
+     * reason to reopen a ticket somebody finished last month, and the customer
+     * can still reopen it themselves by replying to it, which is a decision
+     * rather than a side effect.
+     */
+    public function errorReport(Request $request)
+    {
+        if (!config('gesoftlivechat.error_reports')) {
+            abort(404);
+        }
+
+        $register = $this->register();
+        $app = Apps::authenticate($register, (string) $request->input('provider', ''), $this->bearer($request));
+
+        if (!$app) {
+            return $this->fail('unauthorized', 401);
+        }
+
+        $provider = Apps::provider($request->input('provider'));
+        $external_id = Apps::externalId($request->input('external_user_id'));
+
+        if ($external_id === null) {
+            return $this->fail('invalid_identity', 422);
+        }
+
+        // The schema, before anything else is touched. A body that is not a
+        // diagnostic report is refused here rather than stored and puzzled over
+        // later, and refusing it costs no row, no file and no conversation.
+        $report = Diagnostic::accept($request->input('report'));
+
+        if ($report === null) {
+            return $this->fail('invalid_report', 422);
+        }
+
+        $incident = $report['incident_id'];
+        $bytes = Diagnostic::render($report);
+        $max = (int) config('gesoftlivechat.diagnostic_max_bytes');
+
+        if ($max > 0 && strlen($bytes) > $max) {
+            return $this->fail('too_large', 413);
+        }
+
+        // Already reported. Answered before the identity is even resolved: a
+        // retry must be cheap, and must not be able to create anything.
+        if ($existing = ErrorReport::existing($provider, $incident)) {
+            return $this->reported($existing, false);
+        }
+
+        list($customer, $identity) = AppIdentity::resolve(
+            $provider,
+            $external_id,
+            $this->name($request),
+            $this->email($request)
+        );
+
+        $customer->addChannel($this->channel(), 'customer-'.$customer->id);
+
+        if ($this->tooManyReports($identity)) {
+            return $this->fail('too_many', 429);
+        }
+
+        try {
+            list($record, $created) = \DB::transaction(function () use ($provider, $incident, $identity, $customer, $report) {
+                return $this->file($provider, $incident, $identity, $customer, $report);
+            });
+        } catch (\Throwable $e) {
+            // `Throwable` and not `Exception`: a type error in here is still a
+            // report that did not get filed, and answering it with a stack
+            // trace would be this endpoint doing the very thing the feature
+            // exists to stop.
+            //
+            // The file is written inside the transaction, so a rollback leaves
+            // bytes with no row pointing at them. Nothing would ever look at
+            // them again, so they go now.
+            ErrorReport::discard($provider, $incident);
+
+            \Log::error(self::LOG_PREFIX.': error report could not be filed', [
+                'provider' => $provider,
+                'incident' => $incident,
+                'error'    => $e->getMessage(),
+                'where'    => $e->getFile().':'.$e->getLine(),
+            ]);
+
+            return $this->fail('unavailable', 503);
+        }
+
+        if ($created) {
+            \Log::info(self::LOG_PREFIX.': error report filed', [
+                'provider'        => $provider,
+                'incident'        => $incident,
+                'conversation_id' => $record->conversation_id,
+                'bytes'           => $record->size,
+            ]);
+        }
+
+        return $this->reported($record, $created);
+    }
+
     // ------------------------------------------------------------- internals
+
+    /**
+     * File one report: the row, the conversation, the two threads, the file.
+     *
+     * Runs inside a transaction, and the first thing it does is claim the
+     * incident. That order is the whole idempotency story. A second call for
+     * the same incident blocks on the unique index rather than racing through a
+     * read that says "nothing yet", and when the first commits the second is
+     * told no and hands back the finished row -- one conversation, one message,
+     * one note, one file, however many times the button was pressed.
+     */
+    protected function file($provider, $incident, AppIdentity $identity, $customer, array $report)
+    {
+        list($record, $created) = ErrorReport::claim($provider, $incident, $identity, null);
+
+        if (!$created) {
+            return [$record, false];
+        }
+
+        $lang = (string) config('gesoftlivechat.visitor_lang', 'ro');
+        $said = Message::store(__('Diagnostic report sent — incident :id', ['id' => $incident], $lang));
+
+        $conversation = $identity->openConversation();
+
+        if ($conversation) {
+            Thread::createExtended(
+                [
+                    'type'  => Thread::TYPE_CUSTOMER,
+                    'body'  => $said,
+                    'state' => Thread::STATE_PUBLISHED,
+                ],
+                $conversation,
+                $customer
+            );
+        } else {
+            $mailbox = $this->mailbox();
+
+            if (!$mailbox) {
+                throw new \RuntimeException('no mailbox to file an error report in');
+            }
+
+            $result = Conversation::create(
+                [
+                    'type'        => Conversation::TYPE_CHAT,
+                    'subject'     => __('Error report — incident :id', ['id' => $incident], $lang),
+                    'mailbox_id'  => $mailbox->id,
+                    'source_via'  => Conversation::PERSON_CUSTOMER,
+                    'source_type' => Conversation::SOURCE_TYPE_WEB,
+                    'state'       => Conversation::STATE_PUBLISHED,
+                    'channel'     => $this->channel(),
+                ],
+                [[
+                    'type'  => Thread::TYPE_CUSTOMER,
+                    'body'  => $said,
+                    'state' => Thread::STATE_PUBLISHED,
+                ]],
+                $customer
+            );
+
+            if (!$result) {
+                throw new \RuntimeException('conversation could not be created for an error report');
+            }
+
+            $conversation = $result['conversation'];
+
+            // The same two lines a chat opened from an application gets. Core
+            // has already placed the conversation and counted it; all that is
+            // left is to make sure it reads as waiting for us rather than as
+            // something already dealt with.
+            if (!in_array($conversation->status, [Conversation::STATUS_ACTIVE, Conversation::STATUS_PENDING])) {
+                $conversation->status = Conversation::STATUS_ACTIVE;
+                $conversation->save();
+            }
+
+        }
+
+        // Their own report is not something they have to read. The pointer goes
+        // past everything already written, exactly as it does when they send a
+        // message by hand -- and the panel is about to open on this
+        // conversation anyway, so leaving a badge on it would be telling
+        // somebody about the screen in front of them.
+        $link = $identity->takeConversation($conversation->id);
+        $link->sawUpTo(PHP_INT_MAX);
+
+        $record->conversation_id = $conversation->id;
+        $record->save();
+        $record->store($report);
+
+        // The operator's half. Written with `Thread::create` rather than
+        // `createExtended`, which refuses a note without a user id and would
+        // announce `UserAddedNote` for a user that does not exist: no agent
+        // wrote this, the customer's application did.
+        $note = Thread::create($conversation, Thread::TYPE_NOTE, $this->noteBody($record, $report), [
+            'source_via'             => Thread::PERSON_CUSTOMER,
+            'source_type'            => Thread::SOURCE_TYPE_WEB,
+            'customer_id'            => $customer->id,
+            'created_by_customer_id' => $customer->id,
+        ]);
+
+        $record->thread_id = $note ? $note->id : null;
+        $record->save();
+
+        return [$record, true];
+    }
+
+    /**
+     * What the agent reads in the note.
+     *
+     * A headline they can act on without opening anything -- what broke, where,
+     * and the incident to quote back -- and a link to the rest. Everything in it
+     * comes from the report, which has already been held to the schema, and is
+     * escaped again here anyway: it is about to become HTML in an agent's
+     * browser, and "it was validated upstream" is not a reason to hand a
+     * template a raw string.
+     */
+    protected function noteBody(ErrorReport $record, array $report)
+    {
+        $lang = (string) config('gesoftlivechat.visitor_lang', 'ro');
+        $e = function ($value) {
+            return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        };
+
+        $where = trim(($report['method'] ?? '').' '.($report['path'] ?? ''));
+        $what = isset($report['exception']['class']) ? $report['exception']['class'] : '';
+
+        $lines = [
+            '<b>'.$e(__('Diagnostic report', [], $lang)).' — '.$e($record->incident_id).'</b>',
+        ];
+
+        $facts = array_filter([
+            $report['application'] ?? '',
+            isset($report['status']) ? 'HTTP '.$report['status'] : '',
+            $where,
+            $what,
+        ]);
+
+        if ($facts) {
+            $lines[] = $e(implode(' · ', $facts));
+        }
+
+        $lines[] = '<a href="'.$e(route('gesoftlivechat.agent.diagnostic', ['id' => $record->id])).'">'
+            .$e($record->filename()).'</a>'
+            .' ('.$e(\Helper::humanFileSize($record->size)).')';
+
+        if (!empty($report['truncated'])) {
+            $lines[] = $e(__('The report was shortened to fit the size limit.', [], $lang));
+        }
+
+        return implode('<br>', $lines);
+    }
+
+    /**
+     * The answer for a report that exists, whether or not this call made it.
+     *
+     * Identical either way apart from `created`, which is there for the
+     * application's log rather than for its behaviour: a retry that is told
+     * "already done" should carry on exactly as the first call would have.
+     */
+    protected function reported(ErrorReport $record, $created)
+    {
+        return response()->json([
+            'status'          => 'success',
+            'incident_id'     => $record->incident_id,
+            'conversation_id' => $record->conversation_id ? (int) $record->conversation_id : null,
+            'created'         => (bool) $created,
+        ]);
+    }
+
+    /**
+     * How many reports one identity may file, and how quickly.
+     *
+     * A page in an error loop is the thing this stops -- the person is real,
+     * authenticated and pressing a real button, and none of that makes a
+     * hundred reports about the same broken screen useful. Counted per identity
+     * for the reason the chat's limits are: an office shares an address.
+     *
+     * It is its own budget. Reaching it must not, and does not, stop the person
+     * from chatting about the very fault they were trying to report.
+     */
+    protected function tooManyReports(AppIdentity $identity)
+    {
+        $max = (int) config('gesoftlivechat.error_report_limit');
+
+        if ($max <= 0) {
+            return false;
+        }
+
+        $minutes = max(1, (int) config('gesoftlivechat.error_report_window'));
+        $limiter = app(\Illuminate\Cache\RateLimiter::class);
+        $key = 'gesoftlivechat:errorreport:'.sha1($identity->provider."\0".$identity->external_id);
+
+        if ($limiter->tooManyAttempts($key, $max, $minutes)) {
+            return true;
+        }
+
+        $limiter->hit($key, $minutes);
+
+        return false;
+    }
 
     /**
      * How much this identity has not read, across everything they own.
@@ -576,6 +893,21 @@ class AppController extends Controller
         $route = trim((string) $request->input('route', ''));
 
         return $route !== '' && preg_match('~^[A-Za-z0-9/_.-]{1,191}$~', $route) ? $route : null;
+    }
+
+    /**
+     * The mailbox chats belong to.
+     *
+     * The same answer the chat itself uses, and reached the same way: the
+     * configured mailbox if there is one, otherwise the first. A report has to
+     * land where the chat about it would, or an agent would have two places to
+     * look for one conversation.
+     */
+    protected function mailbox()
+    {
+        $id = config('gesoftlivechat.mailbox_id');
+
+        return $id ? \App\Mailbox::find($id) : \App\Mailbox::orderBy('id')->first();
     }
 
     protected function channel()

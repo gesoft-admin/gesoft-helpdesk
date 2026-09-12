@@ -474,8 +474,11 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
         }
 
         // The sweep runs in production; it is the module working, not a tool.
+        // The identity check is read-only and is wanted exactly where the data
+        // is real, so it is not behind `dev_tools` either.
         $this->commands([
             \Modules\GesoftLiveChat\Console\SweepChats::class,
+            \Modules\GesoftLiveChat\Console\CheckIdentities::class,
         ]);
 
         if (!config('gesoftlivechat.dev_tools')) {

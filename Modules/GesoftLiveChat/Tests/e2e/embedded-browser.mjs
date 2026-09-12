@@ -5,6 +5,7 @@
 //   GLC_APP_BASE=http://app-test.local/backend/web \
 //   GLC_APP_USER_A=... GLC_APP_USER_B=... GLC_APP_PASS=... \
 //   GLC_APP_PROVIDER=<the provider name that application is registered under> \
+//   GLC_APP_TOKEN=<that application's shared secret, for the shared-customer check> \
 //   GLC_AGENT_EMAIL=... GLC_AGENT_PASSWORD=... \
 //   GLC_SQL="ssh test-vm 'sudo -n mysql -N freescout'" \
 //   node Modules/GesoftLiveChat/Tests/e2e/embedded-browser.mjs
@@ -34,6 +35,10 @@ const USER_B = process.env.GLC_APP_USER_B;
 // answer is the same 401 for an unregistered application as for a missing
 // secret, by design, so this works either way and is only sharper when set.
 const PROVIDER = process.env.GLC_APP_PROVIDER || 'not-a-registered-application';
+// The application's own secret. Only for the one check a browser cannot make:
+// two accounts sharing an email address share a FreeScout customer, and must
+// still be unable to read each other. Skipped when it is absent.
+const APP_TOKEN = process.env.GLC_APP_TOKEN || '';
 const RUN = Math.random().toString(16).slice(2, 8);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -82,6 +87,23 @@ async function agentSignIn() {
   }).toString());
   const home = await agentFetch('/');
   return /<meta name="csrf-token" content="([^"]+)"/.exec(home.text)[1];
+}
+
+async function agentNote(csrf, conversation, body) {
+  const mailbox = one(`select mailbox_id from conversations where id=${conversation}`);
+  const res = await agentFetch('/conversation/ajax', new URLSearchParams({
+    _token: csrf, action: 'send_reply', conversation_id: String(conversation),
+    mailbox_id: mailbox, body, is_note: '1',
+  }).toString());
+  return JSON.parse(res.text).status;
+}
+
+async function agentClose(csrf, conversation) {
+  const res = await agentFetch('/conversation/ajax', new URLSearchParams({
+    _token: csrf, action: 'conversation_change_status',
+    conversation_id: String(conversation), status: '3',
+  }).toString());
+  return JSON.parse(res.text).status;
 }
 
 async function agentReply(csrf, conversation, body) {
@@ -225,6 +247,49 @@ const badge = () => ev(`(() => { const b = document.querySelector('#support-chat
 const clickSupport = () => ev(`document.getElementById('support-chat-toggle').click(), true`);
 const authorised = () => inFrame(`return R.querySelector('.panel').getAttribute('data-mode') === 'chat' && !R.querySelector('.form').hidden;`);
 const transcript = () => inFrame(`return [...R.querySelectorAll('.row .msg')].map(b => b.textContent).join(' | ');`);
+
+// The history, as the person sees it: what the list control offers, the rows
+// in it, and the state written on each.
+const clickHistory = () => inFrame(`R.querySelector('.list').click(); return true;`);
+const historyState = () => inFrame(`return R.querySelector('.panel').getAttribute('data-history');`);
+const drawnConversation = () => inFrame(`return R.querySelector('.panel').getAttribute('data-conversation');`);
+
+// Open the list and wait for *this* load's answer. Without the wait, what is
+// read is the previous load still on screen — which is how a test comes to
+// assert that a conversation closed a moment ago is still open.
+async function openHistory() {
+  await clickHistory();
+  await waitFor(async () => (await historyShown()) === 'history');
+  await waitFor(async () => (await historyState()) === 'ready');
+  return rows();
+}
+
+// Pick a row from a list that is already loaded, and wait until that
+// conversation is the one drawn rather than the one that was there before.
+async function selectRow(id) {
+  await waitFor(() => openRow(id));
+  await waitFor(async () => (await drawnConversation()) === String(id));
+  await waitFor(async () => (await historyShown()) === 'chat');
+}
+
+// The list and then one conversation out of it.
+async function openConversation(id) {
+  await openHistory();
+  await selectRow(id);
+}
+const historyShown = () => inFrame(`return R.querySelector('.panel').getAttribute('data-mode');`);
+const listOffered = () => inFrame(`return !R.querySelector('.list').hidden;`);
+const rows = () => inFrame(`return [...R.querySelectorAll('.conv')].map(c => ({
+  id: Number(c.getAttribute('data-id')),
+  subject: c.querySelector('.subject span').textContent,
+  state: c.querySelector('.state').textContent,
+  unread: c.querySelector('.n') ? c.querySelector('.n').textContent : '',
+}));`);
+const openRow = (id) => inFrame(`
+  const row = R.querySelector('.conv[data-id="' + ${JSON.stringify(String(id))} + '"]');
+  if (!row) { return false; }
+  row.click();
+  return true;`);
 
 async function say(text) {
   await inFrame(`
@@ -397,11 +462,177 @@ const asked = await fetch(`${BASE}/gesoft-live-chat/app/session`, {
 });
 check('and a browser asking the helpdesk who it is, without the secret, is refused', asked.status, 401);
 
+// ==========================================================================
+//  The history: conversations that outlive the page they were started on.
+// ==========================================================================
+
+// Back to the first person, who by now has one conversation with a reply in it.
+await signIn(USER_A);
+await ev(`window.GesoftSupport.open(), true`);
+await waitFor(async () => frameSession && await authorised());
+
+// --------------------------------------------------- 1: it survives signing out
+
+check('the panel offers the history once there is one', await waitFor(listOffered), true);
+let listed = await openHistory();
+check('  and the list opens with this load\'s answer, not the last one\'s',
+  await historyShown(), 'history');
+check('the conversation from before signing out is in it', listed.some((r) => r.id === Number(convA)), true);
+check('  with a subject the customer would recognise',
+  (listed.find((r) => r.id === Number(convA)) || {}).subject, first);
+
+await selectRow(convA);
+check('opening it shows the whole conversation, question and answer',
+  await waitFor(async () => {
+    const seen = await transcript();
+    return seen.includes(first) && seen.includes(reply);
+  }), true);
+
+// ------------------------------------------------- 5: internal notes stay internal
+
+const secret = `NOTA INTERNA ${RUN}`;
+check('an agent adds an internal note', await agentNote(csrf, convA, secret), 'success');
+await openConversation(convA);
+await sleep(1200);
+check('the note is not in the customer\'s copy of the conversation',
+  (await transcript()).includes(secret), false);
+check('  and it is in the conversation on the helpdesk\'s side',
+  one(`select count(*) from threads where conversation_id=${convA} and type=3 and body like '%${secret}%'`), '1');
+
+// ------------------------------------- 2: a late reply, and a badge on another page
+
+// The panel goes away entirely: put away, and then the page it lived on is
+// left behind. This is the case 2A could not answer.
+await ev(`window.GesoftSupport.minimize(), true`);
+const late = `Raspuns tarziu ${RUN}`;
+await agentReply(csrf, convA, late);
+
+await go('/site/index');
+check('the badge is on the application\'s own button before the panel is opened at all',
+  await waitFor(async () => (await badge()) !== ''), true);
+check('  and nothing of the helpdesk was loaded to put it there',
+  await ev(`!document.querySelector('.support-panel iframe')`), true);
+
+await ev(`window.GesoftSupport.open(), true`);
+await waitFor(async () => frameSession && await authorised());
+await openConversation(convA);
+check('opening the conversation shows the late reply',
+  await waitFor(async () => (await transcript()).includes(late)), true);
+check('  and reading it clears the badge', await waitFor(async () => (await badge()) === ''), true);
+check('  on the server too, not only on the screen',
+  await waitFor(() => one(`select last_seen_thread_id from gesoft_live_chat_app_conversations where conversation_id=${convA}`)
+    === one(`select max(id) from threads where conversation_id=${convA} and type=2 and state=2`)), true);
+
+// ------------------------------------------------------- 3: closed, then reopened
+
+check('an agent closes it', await agentClose(csrf, convA), 'success');
+listed = await openHistory();
+check('the customer is told it is resolved',
+  (listed.find((r) => r.id === Number(convA)) || {}).state, 'Rezolvat');
+check('  and the helpdesk agrees', one(`select status from conversations where id=${convA}`), '3');
+
+await selectRow(convA);
+const later = `Mai am o intrebare ${RUN}`;
+await say(later);
+check('replying to a resolved conversation puts the message in it, not in a new one',
+  await waitFor(() => one(`select conversation_id from threads where body='${later}'`) === String(convA)), true);
+check('  and it is open again, by core\'s own rule', await waitFor(() =>
+  one(`select status from conversations where id=${convA}`) === '1'), true);
+check('  out of the Closed folder with it',
+  one(`select f.type from conversations c join folders f on f.id=c.folder_id where c.id=${convA}`) !== '4', true);
+check('  and the agent can see the message', one(`select count(*) from threads where conversation_id=${convA} and body='${later}' and type=1 and state=2`), '1');
+
+// --------------------------------------------- 6: more than one conversation
+
+await agentClose(csrf, convA);
+await ev(`window.GesoftSupport.minimize(), true`);
+await go('/site/index');
+await ev(`window.GesoftSupport.open(), true`);
+await waitFor(async () => frameSession && await authorised());
+await heartbeat();
+
+const second = `A doua conversatie ${RUN}`;
+await say(second);
+check('with the first one closed, the next message starts a second conversation',
+  await waitFor(() => {
+    const id = one(`select conversation_id from threads where body='${second}'`);
+    return !!id && id !== String(convA);
+  }), true);
+
+const convB = one(`select conversation_id from threads where body='${second}'`);
+
+listed = await openHistory();
+check('both conversations are in the history', [
+  listed.some((r) => r.id === Number(convA)),
+  listed.some((r) => r.id === Number(convB)),
+], [true, true]);
+check('  newest first', (listed[0] || {}).id, Number(convB));
+
+// The one that matters: answering the old one must not land in the new one.
+await selectRow(convA);
+const again = `Inca ceva pe cea veche ${RUN}`;
+await say(again);
+check('a reply to the older conversation goes to the older conversation',
+  await waitFor(() => one(`select conversation_id from threads where body='${again}'`) === String(convA)), true);
+check('  and not into the newer one',
+  one(`select count(*) from threads where conversation_id=${convB} and body='${again}'`), '0');
+
+// --------------------------- 4: two application accounts, one FreeScout customer
+
+// The case a browser cannot arrange on its own. Core deduplicates customers by
+// email address, so two application accounts that share one share a customer —
+// and the boundary is the identity, not the customer, so they must still see
+// nothing of each other.
+if (APP_TOKEN) {
+  const shared = `shared-${RUN}@gesoft.test`;
+  const mint = async (external) => {
+    const res = await fetch(`${BASE}/gesoft-live-chat/app/session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${APP_TOKEN}` },
+      body: JSON.stringify({ provider: PROVIDER, external_user_id: external, name: external, email: shared }),
+    });
+    return (await res.json()).token;
+  };
+  const call = async (path, body) => {
+    const res = await fetch(`${BASE}/gesoft-live-chat/${path}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  };
+
+  const one_token = await mint(`pair-one-${RUN}`);
+  const two_token = await mint(`pair-two-${RUN}`);
+
+  const customers = sql(`select customer_id from gesoft_live_chat_app_identities where external_id in ('pair-one-${RUN}', 'pair-two-${RUN}')`);
+  check('two accounts with one address land on one FreeScout customer, as core intends',
+    customers.length === 2 && customers[0][0] === customers[1][0], true);
+
+  const opened = await call('start', { app_token: one_token, message: `Doar al meu ${RUN}`, lang: 'ro' });
+  check('  the first of them opens a conversation', opened.body.status, 'success');
+
+  const mine = one(`select conversation_id from threads where body='Doar al meu ${RUN}'`);
+  const theirs = await call('app/history', { app_token: two_token });
+  check('  the second sees an empty history, though they share the customer',
+    (theirs.body.conversations || []).length, 0);
+
+  const peek = await call('app/conversation', { app_token: two_token, conversation_id: mine });
+  check('  and asking for it by id is refused', peek.status, 404);
+  const intrude = await call('app/reply', { app_token: two_token, conversation_id: mine, message: 'nu' });
+  check('  as is writing into it', intrude.status, 404);
+  check('  with the same answer a conversation that does not exist would give',
+    (await call('app/conversation', { app_token: two_token, conversation_id: 999999999 })).status, 404);
+
+  sql(`update conversations set status=3 where id=${mine}`);
+} else {
+  console.log('  --    the shared-customer check needs GLC_APP_TOKEN; skipped');
+}
+
 // What this run opened is closed again, so the next one starts from nothing.
 // A chat left open would be picked up by the next run's resume, which is
 // correct behaviour and a confusing fixture.
-sql(`update conversations set status=3 where id=${convA}`);
+sql(`update conversations set status=3 where customer_id=${customerA}`);
 sql(`update gesoft_live_chat_app_identities set conversation_id=null where customer_id=${customerA}`);
+sql(`delete from gesoft_live_chat_app_conversations where conversation_id in (select id from conversations where customer_id=${customerA})`);
 
 check('no script on either side threw', errors, []);
 

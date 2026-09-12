@@ -90,6 +90,17 @@
             errBlocked: 'Chatul nu este disponibil. Ne puteți scrie la {contact}.',
             errBlockedNoContact: 'Chatul nu este disponibil. Vă rugăm să ne contactați altfel.',
             errUnavailable: 'Chatul nu este disponibil momentan.',
+            history: 'Conversațiile mele',
+            historyBack: 'Înapoi',
+            historyEmpty: 'Nu aveți încă nicio conversație.',
+            historyMore: 'Sunt afișate cele mai recente conversații.',
+            historyNew: 'Conversație nouă',
+            historyOpen: 'Deschide conversația',
+            stActive: 'Deschis',
+            stPending: 'Așteaptă răspunsul dvs.',
+            stClosed: 'Rezolvat',
+            reopenNote: 'Conversația a fost redeschisă.',
+            errHistory: 'Nu am putut încărca conversațiile.',
             sourceTitle: 'Codul sursă al acestui helpdesk (AGPL-3.0)',
             errNetwork: 'Nu am putut trimite. Verificați conexiunea.',
             errGeneric: 'Mesajul nu a putut fi trimis. Încercați din nou.'
@@ -136,6 +147,17 @@
             errBlocked: 'Chat is not available. You can write to us at {contact}.',
             errBlockedNoContact: 'Chat is not available. Please contact us another way.',
             errUnavailable: 'Chat is not available right now.',
+            history: 'My conversations',
+            historyBack: 'Back',
+            historyEmpty: 'You have no conversations yet.',
+            historyMore: 'Showing the most recent conversations.',
+            historyNew: 'New conversation',
+            historyOpen: 'Open conversation',
+            stActive: 'Open',
+            stPending: 'Waiting for your reply',
+            stClosed: 'Resolved',
+            reopenNote: 'This conversation has been reopened.',
+            errHistory: 'The conversations could not be loaded.',
             sourceTitle: 'The source code of this helpdesk (AGPL-3.0)',
             errNetwork: 'Could not send. Please check your connection.',
             errGeneric: 'The message could not be sent. Please try again.'
@@ -279,6 +301,17 @@
     // depends on the application having told us an address. The panel has no
     // form to collect one in, so it asks rather than offers and then fails.
     var canLeaveMessage = false;
+    // Which conversation the panel is showing, when it is not the live chat:
+    // the id of one opened from the history, or null. It decides where a
+    // message goes, so it is the one piece of state here that must never be
+    // guessed at.
+    var viewing = null;
+    var readOnly = false;
+    // Whether this person has any conversations at all, and how many answers
+    // they have not read -- both from the server, both across every
+    // conversation, and neither one this page's to invent.
+    var hasHistory = false;
+    var unreadTotal = 0;
 
     // Everything this page says to the application it is embedded in. One
     // target origin, named by the helpdesk; if there is none, we say nothing.
@@ -300,6 +333,8 @@
     var ICON_CHAT = '<svg class="i-chat" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.2 3.6c-.5.4-1.3.1-1.3-.6V16A2.5 2.5 0 0 1 4 13.5z" fill="currentColor"/></svg>';
     var ICON_CLOSE = '<svg class="i-close" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>';
     var ICON_SEND = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l15-7-5 15-2.6-6.2z" fill="currentColor"/></svg>';
+    var ICON_LIST = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>';
+    var ICON_BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
 
     root.innerHTML = [
         '<style>',
@@ -431,6 +466,25 @@
         '.wrap.embed .panel { position: absolute; top: 0; right: 0; bottom: 0; left: 0;' +
             ' width: auto; max-width: none; height: auto; max-height: none;' +
             ' border: 0; border-radius: 0; box-shadow: none; }',
+        // The history: one row per conversation, and nothing on a row that an
+        // agent would not say out loud.
+        '.history { padding: 8px; gap: 8px; }',
+        '.conv {',
+        '  display: block; width: 100%; text-align: left; font: inherit; color: var(--ink); cursor: pointer;',
+        '  background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;',
+        '}',
+        '.conv:hover { border-color: var(--brand); }',
+        '.conv:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }',
+        '.conv .subject { font-weight: 600; display: flex; align-items: center; gap: 6px; }',
+        '.conv .subject span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+        '.conv .meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 12px; color: var(--muted); }',
+        '.conv .state { border-radius: 999px; padding: 1px 8px; background: var(--brand-soft); color: var(--brand); font-weight: 600; }',
+        '.conv.closed .state { background: var(--line); color: var(--muted); }',
+        '.conv .n { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #c0392b; color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }',
+        '.head .nav { position: relative; border: 0; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; flex: none; }',
+        '.head .nav svg { width: 18px; height: 18px; }',
+        '.head .nav:hover { background: rgba(255,255,255,.14); }',
+        '.head .nav[hidden] { display: none; }',
         '.src { padding: 2px 12px 8px; text-align: center; background: var(--bg); }',
         '.src a { font-size: 11px; color: var(--muted); text-decoration: none; }',
         '.src a:hover { text-decoration: underline; }',
@@ -442,7 +496,9 @@
         '<button class="launcher" type="button" aria-expanded="false">' + ICON_CHAT + ICON_CLOSE + '<span class="badge" hidden></span></button>',
         '<section class="panel" role="dialog">',
         '  <header class="head">',
+        '    <button class="nav back" type="button" hidden>' + ICON_BACK + '</button>',
         '    <div class="who"><div class="title"></div><div class="status"><span class="dot"></span><span class="status-text"></span></div></div>',
+        '    <button class="nav list" type="button" hidden>' + ICON_LIST + '<span class="badge list-badge" hidden></span></button>',
         '    <button class="end" type="button" hidden></button>',
         '    <button class="x" type="button">' + ICON_CLOSE + '</button>',
         '  </header>',
@@ -470,6 +526,7 @@
         '    <span class="small-print t-privacy"></span>',
         '  </form>',
         '  <div class="screen done" hidden><div class="check" aria-hidden="true">&#10003;</div><p class="t-done"></p></div>',
+        '  <div class="screen history" hidden></div>',
         '  <div class="log" role="log" aria-live="polite" hidden></div>',
         '  <div class="typing" role="status" hidden><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="typing-text"></span></div>',
         '  <form class="form" hidden>',
@@ -502,6 +559,10 @@
     var intro    = $('.intro');
     var offline  = $('.offline');
     var done     = $('.done');
+    var historyBox = $('.history');
+    var backBtn  = $('.back');
+    var listBtn  = $('.list');
+    var listBadge = $('.list-badge');
     var log      = $('.log');
     var form     = $('.form');
     var endBtn   = $('.end');
@@ -521,6 +582,10 @@
         launcher.setAttribute('aria-label', T.openChat);
         endBtn.textContent = T.end;
         $('.x').setAttribute('aria-label', T.close);
+        listBtn.setAttribute('aria-label', T.history);
+        listBtn.setAttribute('title', T.history);
+        backBtn.setAttribute('aria-label', T.historyBack);
+        backBtn.setAttribute('title', T.historyBack);
         $('.confirm-text').textContent = T.endQuestion;
         $('.confirm-yes').textContent = T.endYes;
         $('.confirm-no').textContent = T.endNo;
@@ -557,9 +622,20 @@
         intro.hidden = mode !== 'intro';
         offline.hidden = mode !== 'offline';
         done.hidden = mode !== 'done';
+        historyBox.hidden = mode !== 'history';
         log.hidden = mode !== 'chat';
-        form.hidden = mode !== 'chat';
+        // A conversation from the history that can no longer be written into --
+        // an agent deleted it, or marked it spam -- is still worth reading, so
+        // the messages stay and only the box to type in goes.
+        form.hidden = mode !== 'chat' || readOnly;
         confirm.hidden = true;
+        paintNav();
+
+        // "End" ends the conversation you are in. It has no meaning over a list
+        // of conversations, and none over one out of the history either — that
+        // one is already over, or it is the live chat and will say so.
+        if (EMBED) { endBtn.hidden = mode !== 'chat' || !token || viewing !== null; }
+
         if (mode !== 'chat') { typingBox.hidden = true; }
 
         var focus = mode === 'intro' ? intro.querySelector('[name=name]')
@@ -584,6 +660,27 @@
         if (className) { node.className = className; }
         if (text !== undefined && text !== null) { node.textContent = text; }
         return node;
+    }
+
+    // For a history row, where a conversation may be from this morning or from
+    // March. `clock()` shows a time and only a time, which on a list of months
+    // is the one thing that tells you nothing.
+    function when(iso) {
+        try {
+            var date = new Date(iso),
+                now = new Date(),
+                locale = LANG === 'ro' ? 'ro-RO' : 'en-GB';
+
+            if (date.toDateString() === now.toDateString()) {
+                return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+            }
+
+            return date.toLocaleDateString(locale, date.getFullYear() === now.getFullYear()
+                ? { day: 'numeric', month: 'short' }
+                : { day: 'numeric', month: 'short', year: 'numeric' });
+        } catch (e) {
+            return '';
+        }
     }
 
     function clock(iso) {
@@ -851,6 +948,170 @@
         return Math.round(delay * (0.9 + Math.random() * 0.2));
     }
 
+    // ------------------------------------------------------------- history
+
+    // The badge on the application's own button, and the one on the list
+    // control inside the panel, are the same number: how many answers this
+    // person has not read, across every conversation they own. It comes from
+    // the server, because it has to survive the tab being closed.
+    function setUnread(total) {
+        unreadTotal = Math.max(0, parseInt(total, 10) || 0);
+
+        listBadge.textContent = unreadTotal > 9 ? '9+' : String(unreadTotal);
+        listBadge.hidden = !unreadTotal;
+
+        toParent('UNREAD_COUNT', unreadTotal);
+    }
+
+    // What the header offers, which depends only on where we are.
+    function paintNav() {
+        if (!EMBED) { return; }
+
+        var mode = panel.getAttribute('data-mode');
+
+        backBtn.hidden = !(viewing !== null || mode === 'history');
+        listBtn.hidden = !hasHistory || mode === 'history';
+    }
+
+    function stateWord(key) {
+        return key === 'closed' ? T.stClosed : key === 'pending' ? T.stPending : T.stActive;
+    }
+
+    // One row per conversation. Every value is written with textContent: a
+    // subject is whatever the first message said, so it is somebody else's
+    // text even when that somebody is this customer.
+    function paintHistory(list, more) {
+        while (historyBox.firstChild) { historyBox.removeChild(historyBox.firstChild); }
+
+        if (!list.length) {
+            historyBox.appendChild(el('p', null, T.historyEmpty));
+            return;
+        }
+
+        list.forEach(function (item) {
+            var row = el('button', 'conv' + (item.status === 'closed' ? ' closed' : ''));
+            row.type = 'button';
+            row.setAttribute('data-id', String(item.id));
+            row.setAttribute('aria-label', T.historyOpen);
+
+            var subject = el('div', 'subject');
+            subject.appendChild(el('span', null, item.subject || T.title));
+            if (item.unread > 0) {
+                subject.appendChild(el('span', 'n', item.unread > 9 ? '9+' : String(item.unread)));
+            }
+            row.appendChild(subject);
+
+            var meta = el('div', 'meta');
+            meta.appendChild(el('span', 'state', stateWord(item.status)));
+            if (item.at) { meta.appendChild(el('span', null, when(item.at))); }
+            row.appendChild(meta);
+
+            row.addEventListener('click', function () { openFromHistory(item.id); });
+            historyBox.appendChild(row);
+        });
+
+        if (more) {
+            historyBox.appendChild(el('p', 'small-print', T.historyMore));
+        }
+    }
+
+    function loadHistory() {
+        show('history');
+        stopPolling();
+
+        // `data-history` says whether what is on screen is this load's answer
+        // or the last one's. The list is fetched, so there is a moment when it
+        // shows the conversations as they were a minute ago -- long enough for
+        // somebody to read a state that has since changed, and long enough for
+        // a test to check one.
+        panel.setAttribute('data-history', 'loading');
+
+        post('app/history', { app_token: appToken })
+            .then(function (res) {
+                if (!res || res.status !== 'success') {
+                    paintHistory([], false);
+                    panel.setAttribute('data-history', 'error');
+                    return;
+                }
+
+                hasHistory = !!res.history;
+                if (res.unread) { setUnread(res.unread.messages); }
+                paintHistory(res.conversations || [], res.more);
+                paintNav();
+                panel.setAttribute('data-history', 'ready');
+            })
+            .catch(function () {
+                paintHistory([], false);
+                panel.setAttribute('data-history', 'error');
+            });
+    }
+
+    // Open one conversation from the list. Reading it is what marks it read --
+    // not listing it, and not the panel having been opened.
+    function openFromHistory(id) {
+        post('app/conversation', { app_token: appToken, conversation_id: id })
+            .then(function (res) {
+                if (!res || res.status !== 'success') {
+                    note(T.errHistory);
+                    return;
+                }
+
+                stopPolling();
+                // Which conversation is on screen, for anything that needs to
+                // know the drawing has caught up with the asking.
+                panel.setAttribute('data-conversation', String(res.id));
+                // Whether this is the live chat is decided by what the server
+                // just said, and never by what this page still holds. The
+                // token in hand proves nothing: a chat closed by an agent while
+                // the panel was showing the list was never polled again, so the
+                // token outlives the chat it addressed. Replying on it would be
+                // answered "this conversation is no longer open" — with a
+                // reopening path sitting right there unused.
+                //
+                // So: the current conversation, still open, is the live chat.
+                // Everything else goes through the history, which is the path
+                // that reopens.
+                viewing = res.current && res.can_reply && res.status_key !== 'closed' ? null : res.id;
+                readOnly = !res.can_reply;
+                fresh();
+
+                (res.messages || []).forEach(function (m) {
+                    seen[m.id] = true;
+                    add(m.from, m.body, m.author, m.at, m.id);
+                });
+
+                show('chat');
+
+                // The live chat carries on polling; a conversation out of the
+                // history does not, because the token in hand addresses the
+                // live one and this is not it.
+                if (viewing === null) {
+                    since = 0;
+                    if (token) { pollNow(); startPolling(); }
+                } else {
+                    markSeen(res.id, res.messages || []);
+                }
+            })
+            .catch(function () { note(T.errHistory); });
+    }
+
+    // Tell the server how far this person has now actually read. Only the
+    // newest agent message that was drawn, because that is all they saw.
+    function markSeen(id, messages) {
+        var newest = 0;
+        messages.forEach(function (m) {
+            if (m.from === 'agent' && m.id > newest) { newest = m.id; }
+        });
+
+        if (!newest) { return; }
+
+        post('app/seen', { app_token: appToken, conversation_id: id, seen: newest })
+            .then(function (res) {
+                if (res && res.status === 'success' && res.unread) { setUnread(res.unread.messages); }
+            })
+            .catch(function () { /* the count is refreshed on the next load */ });
+    }
+
     // ----------------------------------------------------- embedded identity
 
     // The permission the application's page has handed over, which its own
@@ -880,6 +1141,9 @@
                 }
 
                 canLeaveMessage = !!res.offline;
+                hasHistory = !!res.history;
+                if (res.unread) { setUnread(res.unread.messages); }
+                paintNav();
 
                 if (res.chat && res.chat.token) {
                     remember(res.chat.token);
@@ -1073,6 +1337,41 @@
         if (panel.classList.contains('open')) { close(); } else { open(); }
     });
     $('.x').addEventListener('click', close);
+
+    // The list, and the way back out of it. Both exist only in a panel
+    // embedded in an application, because only there is there an identity to
+    // have a history.
+    listBtn.addEventListener('click', function () { loadHistory(); });
+
+    backBtn.addEventListener('click', function () {
+        if (panel.getAttribute('data-mode') === 'history') {
+            // Out of the list and back to whatever was on screen: the live
+            // chat when there is one, an empty one when there is not.
+            viewing = null;
+            readOnly = false;
+            backToChat();
+            return;
+        }
+
+        loadHistory();
+    });
+
+    // The live chat, as it was. Redrawn from the server rather than from
+    // whatever was left on screen, because the screen may have been showing
+    // somebody's conversation from March a moment ago.
+    function backToChat() {
+        viewing = null;
+        readOnly = false;
+        panel.removeAttribute('data-conversation');
+        fresh();
+        since = 0;
+        show('chat');
+
+        if (token) {
+            pollNow();
+            startPolling();
+        }
+    }
     root.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && panel.classList.contains('open')) { close(); launcher.focus(); }
     });
@@ -1191,7 +1490,10 @@
         typedAt = 0;
         grow();
         sendBtn.disabled = true;
-        if (!token) { fresh(); }
+        // A first message starts on a clean screen -- but not when the screen
+        // is showing a conversation out of the history, which is the one being
+        // replied to.
+        if (!token && viewing === null) { fresh(); }
         var row = add('visitor', text, null, null);
 
         // Not sent after all: take it back out of the conversation, where it
@@ -1204,13 +1506,25 @@
             }
         }
 
-        // Outside our hours an embedded first message becomes an email
-        // conversation instead of a chat nobody will answer tonight — but only
-        // when there is an address to answer it at, which the helpdesk said
-        // when the panel resumed.
-        var path = token ? 'send'
+        // A conversation opened from the history is answered where it is, not
+        // where the live chat happens to be. The helpdesk reopens it if it was
+        // closed -- that is core's rule, "reply from customer makes
+        // conversation active" -- and hands back a token, so from the next
+        // message on this simply *is* the live chat.
+        //
+        // Outside our hours a first message becomes an email conversation
+        // instead of a chat nobody will answer tonight, but only when there is
+        // an address to answer it at, which the helpdesk said when the panel
+        // resumed.
+        var path = viewing !== null ? 'app/reply'
+            : token ? 'send'
             : (EMBED && online === false && canLeaveMessage ? 'offline' : 'start');
         var payload = { token: token, message: text };
+
+        if (path === 'app/reply') {
+            payload.app_token = appToken;
+            payload.conversation_id = viewing;
+        }
 
         // No token yet means this is the first message, which happens here only
         // when the host page supplied the identity and the form was skipped.
@@ -1261,6 +1575,25 @@
                 if (path === 'offline') {
                     fresh();
                     show('done');
+                    return;
+                }
+
+                // The old conversation has taken over as the live one. Its
+                // token replaces the one we held, and the poll starts again
+                // from the beginning of it.
+                if (path === 'app/reply') {
+                    viewing = null;
+                    hasHistory = true;
+                    paintNav();
+
+                    if (res.chat && res.chat.token) {
+                        remember(res.chat.token);
+                        since = 0;
+                    }
+
+                    markSent(row, res.id || 0);
+                    active();
+                    startPolling();
                     return;
                 }
 

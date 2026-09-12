@@ -180,12 +180,20 @@ namespace {
     check('  customer id', $ctx['customer_id'] ?? null, 7);
     check('  reply count', $ctx['replies'] ?? null, 2);
 
-    // The idle sweep is the module working and runs everywhere. The
-    // conversation maker is a tool and must not exist unless somebody turned it
-    // on. Neither is ever registered outside the console.
+    // The idle sweep is the module working and the identity check is read-only,
+    // so both run everywhere. The conversation maker writes test data and must
+    // not exist unless somebody turned it on. None is registered outside the
+    // console.
+    //
+    // The count is pinned deliberately: this is the list of things that exist on
+    // a production instance without anybody asking for them, and it should be
+    // hard to add to by accident.
     boot(true);
-    check('sweep registered with the dev flag off', count($REGISTERED_COMMANDS), 1);
-    check('  and it is the sweep', strpos($REGISTERED_COMMANDS[0] ?? '', 'SweepChats') !== false, true);
+    $always_on = implode(' ', $REGISTERED_COMMANDS);
+    check('two commands registered with the dev flag off', count($REGISTERED_COMMANDS), 2);
+    check('  the sweep', strpos($always_on, 'SweepChats') !== false, true);
+    check('  and the identity check', strpos($always_on, 'CheckIdentities') !== false, true);
+    check('  and no tool among them', strpos($always_on, 'MakeChatConversation') !== false, false);
 
     $CONFIG['gesoftlivechat.dev_tools'] = true;
     boot(true);

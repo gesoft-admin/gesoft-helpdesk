@@ -10,9 +10,11 @@ use Illuminate\Cache\RateLimiter;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\GesoftLiveChat\Entities\AgentPresence;
+use Modules\GesoftLiveChat\Entities\AppSession;
 use Modules\GesoftLiveChat\Entities\ChatBlock;
 use Modules\GesoftLiveChat\Entities\ChatReceipt;
 use Modules\GesoftLiveChat\Entities\ChatSession;
+use Modules\GesoftLiveChat\Support\Apps;
 use Modules\GesoftLiveChat\Support\Origin;
 use Modules\GesoftLiveChat\Support\Presence;
 use Modules\GesoftLiveChat\Support\Typing;
@@ -102,6 +104,14 @@ class ChatController extends Controller
             return $this->fail($request, __('Chat is not available right now.', [], $lang), 503, 'unavailable');
         }
 
+        // Somebody an application signed in, whose browser is holding the
+        // permission that application's server was given. Their identity was
+        // settled on an authenticated, server-to-server call; nothing they
+        // could type here is consulted.
+        if ($app = $this->appSession($request)) {
+            return $this->startAsApp($request, $app, $body, $lang, $mailbox);
+        }
+
         if ($refused = $this->refuseBots($request, $lang)) {
             return $refused;
         }
@@ -171,6 +181,108 @@ class ChatController extends Controller
     }
 
     /**
+     * Open a chat for somebody an application has signed in.
+     *
+     * Everything that makes the public `start` careful is either already
+     * settled or does not apply:
+     *
+     *  - **who they are** was settled server to server. There is no name, no
+     *    address and no bot trap here, because none of them would be evidence
+     *    of anything: the customer is the one the mapping names.
+     *  - **the start limit** is per identity rather than per address. A whole
+     *    institution behind one address is one budget the wrong way round, and
+     *    a signed-in person is somebody we can count individually.
+     *  - **blocks still apply.** An agent who has blocked somebody has blocked
+     *    them, and being signed in to an application is not an appeal.
+     */
+    protected function startAsApp(Request $request, AppSession $app, $body, $lang, $mailbox)
+    {
+        $identity = $app->identity();
+        $customer = $identity ? $identity->customer : null;
+
+        if (!$identity || !$customer) {
+            return $this->fail($request, __('Chat is not available right now.', [], $lang), 401, 'unavailable');
+        }
+
+        // A chat opened in another tab between this panel asking to resume and
+        // this first message being written. Write into that one rather than
+        // opening a second: two live chats for one person are two places for an
+        // agent to answer and one the person cannot see.
+        if ($conversation = $identity->openConversation()) {
+            list(, $token) = ChatSession::open($conversation, $request->ip(), $lang);
+            $request->merge(['token' => $token]);
+
+            $response = $this->send($request);
+            $payload = json_decode($response->getContent(), true);
+
+            if (!is_array($payload) || ($payload['status'] ?? '') !== 'success') {
+                return $response;
+            }
+
+            // `since` from the beginning: the panel has nothing on screen, and
+            // what it needs next is the conversation this message just joined.
+            return $this->ok($request, ['token' => $token, 'since' => 0] + $payload);
+        }
+
+        if ($refused = $this->refuseBlocked($request, $customer->getMainEmail(), $mailbox, $lang)) {
+            return $refused;
+        }
+
+        if ($this->tooManyAppStarts($identity)) {
+            return $this->fail($request, __('Too many conversations were started from your connection. Please try again in a few minutes.', [], $lang), 429, 'too_many');
+        }
+
+        $result = Conversation::create(
+            [
+                'type'        => Conversation::TYPE_CHAT,
+                'subject'     => Conversation::subjectFromText($body),
+                'mailbox_id'  => $mailbox->id,
+                'source_via'  => Conversation::PERSON_CUSTOMER,
+                'source_type' => Conversation::SOURCE_TYPE_WEB,
+                'state'       => Conversation::STATE_PUBLISHED,
+                'channel'     => $this->channel(),
+            ],
+            [[
+                'type'  => Thread::TYPE_CUSTOMER,
+                'body'  => $body,
+                'state' => Thread::STATE_PUBLISHED,
+            ]],
+            $customer
+        );
+
+        if (!$result) {
+            \Log::error(self::LOG_PREFIX.': Conversation::create() created no thread');
+
+            return $this->fail($request, __('Chat is not available right now.', [], $lang), 503, 'unavailable');
+        }
+
+        $conversation = $result['conversation'];
+        $this->makeActive($conversation);
+
+        // What "the chat this person is in" means from now on. Filed against
+        // the identity and not against the customer, because two application
+        // accounts sharing an email address share a customer.
+        $identity->conversation_id = $conversation->id;
+        $identity->save();
+
+        list(, $token) = ChatSession::open($conversation, $request->ip(), $lang);
+
+        \Log::info(self::LOG_PREFIX.': chat opened from an application', [
+            'conversation_id' => $conversation->id,
+            'customer_id'     => $customer->id,
+            'provider'        => $identity->provider,
+            // Where in the application they were when they opened the panel.
+            'route'           => $app->route,
+        ]);
+
+        return $this->ok($request, [
+            'token' => $token,
+            'since' => $result['thread']->id ?? 0,
+            'id'    => $result['thread']->id ?? 0,
+        ]);
+    }
+
+    /**
      * A message left while nobody is available to chat.
      *
      * It becomes an ordinary email conversation, answered by email like any
@@ -194,11 +306,26 @@ class ChatController extends Controller
             return $this->fail($request, __('Chat is not available right now.', [], $lang), 503, 'unavailable');
         }
 
-        if ($refused = $this->refuseBots($request, $lang)) {
+        // Somebody an application signed in, writing to us outside our hours.
+        // Their address is the one their application vouched for, so there is
+        // nothing to ask for and nothing to check a typed address against.
+        $app = $this->appSession($request);
+        $identity = $app ? $app->identity() : null;
+
+        if ($app && (!$identity || !$identity->customer)) {
+            return $this->fail($request, __('Chat is not available right now.', [], $lang), 401, 'unavailable');
+        }
+
+        if (!$app && ($refused = $this->refuseBots($request, $lang))) {
             return $refused;
         }
 
-        $email = $this->email($request);
+        $email = $app ? $identity->customer->getMainEmail() : $this->email($request);
+
+        // No address at all. For a visitor that means the form was not filled
+        // in; for an application identity it means the application has never
+        // told us one, and a message left here could only ever be read, never
+        // answered. Both are the same refusal.
         if (!$email) {
             return $this->fail($request, __('Please leave an email address so we can reach you.', [], $lang), 422, 'email_required');
         }
@@ -207,11 +334,11 @@ class ChatController extends Controller
             return $refused;
         }
 
-        if ($this->tooManyStarts($request)) {
+        if ($app ? $this->tooManyAppStarts($identity) : $this->tooManyStarts($request)) {
             return $this->fail($request, __('Too many conversations were started from your connection. Please try again in a few minutes.', [], $lang), 429, 'too_many');
         }
 
-        $customer = $this->customer($email, $request, $lang);
+        $customer = $app ? $identity->customer : $this->customer($email, $request, $lang);
 
         // Marks the conversation as the form's before core announces it, so no
         // auto-reply goes to an address a stranger typed. See Support/Origin.
@@ -609,6 +736,51 @@ class ChatController extends Controller
         }
 
         return ChatSession::findByToken($token);
+    }
+
+    /**
+     * The application permission a request is carrying, or null.
+     *
+     * A separate credential from the visitor's session token and never
+     * interchangeable with it: this one says "act as this identity", the other
+     * says "this conversation". It arrives as `app_token` so that a request
+     * carrying both is unambiguous.
+     */
+    protected function appSession(Request $request)
+    {
+        $token = $request->input('app_token');
+
+        if ($token === null) {
+            $raw = json_decode((string) $request->getContent(), true);
+            $token = is_array($raw) ? ($raw['app_token'] ?? null) : null;
+        }
+
+        return AppSession::findByToken($token, Apps::register(config('gesoftlivechat.apps')));
+    }
+
+    /**
+     * How many chats one application identity may open, counted per person
+     * rather than per address. See `tooManyStarts()` for why starting has a
+     * budget of its own at all.
+     */
+    protected function tooManyAppStarts($identity)
+    {
+        $max = (int) config('gesoftlivechat.app_start_limit');
+        if ($max <= 0) {
+            return false;
+        }
+
+        $minutes = max(1, (int) config('gesoftlivechat.app_start_window'));
+        $limiter = app(RateLimiter::class);
+        $key = 'gesoftlivechat:appstart:'.sha1($identity->provider."\0".$identity->external_id);
+
+        if ($limiter->tooManyAttempts($key, $max, $minutes)) {
+            return true;
+        }
+
+        $limiter->hit($key, $minutes);
+
+        return false;
     }
 
     /**

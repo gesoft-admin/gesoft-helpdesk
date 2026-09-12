@@ -54,6 +54,11 @@ Route::group([
     // later whether the visitor really left.
     Route::post('/leave', 'ChatController@leave')->name('gesoftlivechat.leave');
 
+    // The chat this application user is already in, asked by the embedded
+    // page with the permission its own server was handed. It mints nothing a
+    // visitor's token cannot already do and names no conversation of its own.
+    Route::post('/app/resume', 'AppController@resume')->name('gesoftlivechat.app.resume');
+
     // The demo page, which is a test harness rather than a product: it hosts
     // the bubble on this server so the transport can be exercised end to end
     // before anybody embeds it on a real site. Off unless dev tools are on.
@@ -71,6 +76,24 @@ Route::group([
     'namespace'  => 'Modules\GesoftLiveChat\Http\Controllers',
 ], function () {
     Route::get('/chat', 'ChatController@page')->name('gesoftlivechat.page');
+});
+
+/**
+ * The one call a browser never makes: an application's server asking, with a
+ * shared secret, for permission for the person it has signed in to chat.
+ *
+ * Its own budget rather than the visitors' one. That budget is sized for
+ * bubbles polling every couple of seconds and is counted per address -- and
+ * every call here arrives from the same address, the application's server, so
+ * sharing it would mean one busy morning of chats could refuse an application
+ * its bootstrap, or the other way about.
+ */
+Route::group([
+    'middleware' => ['open', 'throttle:'.((int) config('gesoftlivechat.app_rate_per_minute') ?: 120).',1'],
+    'prefix'     => \Helper::getSubdirectory().'/gesoft-live-chat',
+    'namespace'  => 'Modules\GesoftLiveChat\Http\Controllers',
+], function () {
+    Route::post('/app/session', 'AppController@session')->name('gesoftlivechat.app.session');
 });
 
 /**

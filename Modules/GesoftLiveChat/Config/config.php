@@ -279,6 +279,83 @@ return [
     'require_email' => env('GESOFT_LIVE_CHAT_REQUIRE_EMAIL', true),
 
     /**
+     * Applications allowed to open chats for people they have already signed
+     * in, and to frame the embedded chat page.
+     *
+     * `GESOFT_LIVE_CHAT_APPS` names them, comma separated; each one then needs
+     * a shared secret and the origin its pages are served from:
+     *
+     *   GESOFT_LIVE_CHAT_APPS=myapp
+     *   GESOFT_LIVE_CHAT_APP_MYAPP_TOKEN=<64 random hex characters>
+     *   GESOFT_LIVE_CHAT_APP_MYAPP_ORIGIN=https://myapp.example.com
+     *   GESOFT_LIVE_CHAT_APP_MYAPP_NAME=My Application
+     *
+     * The suffix is the provider name upper-cased, with anything that is not a
+     * letter or a digit turned into an underscore. One origin per application
+     * and no wildcards: it is both what `frame-ancestors` allows on the
+     * embedded page and what that page will post messages to, deliberately the
+     * same value so an application cannot be authorised in one direction only.
+     *
+     * `Support/Apps.php` drops any entry missing a piece rather than repairing
+     * it, so a half-written application here is simply not registered.
+     */
+    'apps' => call_user_func(function () {
+        $apps = [];
+
+        foreach (explode(',', (string) env('GESOFT_LIVE_CHAT_APPS', '')) as $provider) {
+            $provider = trim($provider);
+            if ($provider === '') {
+                continue;
+            }
+
+            $key = strtoupper(preg_replace('/[^A-Za-z0-9]/', '_', $provider));
+
+            $apps[$provider] = [
+                'token'  => (string) env('GESOFT_LIVE_CHAT_APP_'.$key.'_TOKEN', ''),
+                'origin' => (string) env('GESOFT_LIVE_CHAT_APP_'.$key.'_ORIGIN', ''),
+                'name'   => (string) env('GESOFT_LIVE_CHAT_APP_'.$key.'_NAME', ''),
+            ];
+        }
+
+        return $apps;
+    }),
+
+    /**
+     * How long a browser's permission to act as an application user lasts, in
+     * seconds.
+     *
+     * It is asked for again on every page that opens the panel, so this only
+     * has to outlast one sitting in front of one page. Twelve hours covers a
+     * working day with a page left open, and still means a token copied out of
+     * a browser is worthless by the next morning.
+     */
+    'app_session_ttl' => env('GESOFT_LIVE_CHAT_APP_SESSION_TTL', 43200),
+
+    /**
+     * Requests a minute to the server-to-server bootstrap, from one address.
+     *
+     * Its own ceiling rather than the visitors' one, because every call
+     * arrives from the same address -- the application's server -- and would
+     * otherwise share a budget sized for polling bubbles. One call per person
+     * per sitting is the shape of the traffic; 120 leaves plenty of room and
+     * still caps a loop that has got hold of a secret.
+     */
+    'app_rate_per_minute' => env('GESOFT_LIVE_CHAT_APP_RATE_PER_MINUTE', 120),
+
+    /**
+     * How many conversations one application identity may open, and over how
+     * many minutes. Zero switches it off.
+     *
+     * A signed-in customer is known, not anonymous, so the per-address start
+     * limit is the wrong instrument -- a whole institution behind one address
+     * would share one budget. This one is per person instead, and generous:
+     * it is there so a script that has got hold of a bootstrap token cannot
+     * fill the chat list, not to ration support.
+     */
+    'app_start_limit'  => env('GESOFT_LIVE_CHAT_APP_START_LIMIT', 10),
+    'app_start_window' => env('GESOFT_LIVE_CHAT_APP_START_WINDOW', 10),
+
+    /**
      * The source link at the foot of the chat window on `/chat`, and where it
      * points.
      *

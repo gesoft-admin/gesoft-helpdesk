@@ -343,6 +343,16 @@ const convA = one(`select conversation_id from threads where body='${first}'`);
 const customerA = one(`select customer_id from conversations where id=${convA}`);
 const externalA = one(`select external_id from gesoft_live_chat_app_identities where customer_id=${customerA}`);
 
+// Anything this person was left holding by an earlier run -- this suite's, or
+// the error reporting suite's, or a run that failed before it could tidy up --
+// would sit at the top of the history and make the checks below read the wrong
+// row. The conversation this run has just opened stays; everything older is
+// closed and unclaimed, which is what the teardown at the end does anyway.
+sql(`delete from gesoft_live_chat_app_conversations
+     where identity_id in (select id from gesoft_live_chat_app_identities where customer_id=${customerA})
+       and conversation_id <> ${convA}`);
+sql(`update conversations set status=3 where customer_id=${customerA} and id <> ${convA}`);
+
 check('  which is a chat, on the chat channel',
   sql(`select type, channel from conversations where id=${convA}`)[0], ['3', '100']);
 check('the helpdesk filed this person under the application and its own user id, not their address',

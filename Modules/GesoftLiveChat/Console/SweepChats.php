@@ -5,6 +5,7 @@ namespace Modules\GesoftLiveChat\Console;
 use App\Conversation;
 use Illuminate\Console\Command;
 use Modules\GesoftLiveChat\Entities\ChatSession;
+use Modules\GesoftLiveChat\Entities\ErrorReport;
 use Modules\GesoftLiveChat\Support\Presence;
 
 /**
@@ -98,9 +99,56 @@ class SweepChats extends Command
             ]);
         }
 
-        $this->info(sprintf('%d marked idle, %d closed, %d left%s', $marked, $closed, $left, $dry ? ' (dry run)' : ''));
+        $orphans = $this->sweepDiagnostics($dry);
+
+        $this->info(sprintf(
+            '%d marked idle, %d closed, %d left, %d diagnostics dropped%s',
+            $marked, $closed, $left, $orphans, $dry ? ' (dry run)' : ''
+        ));
 
         return 0;
+    }
+
+    /**
+     * Diagnostic reports whose conversation is no longer there.
+     *
+     * A report is evidence about a conversation, so it lives exactly as long as
+     * the conversation does. When a conversation is deleted for good, the file
+     * describing what was broken that day has outlived its only reader and is
+     * removed here rather than sitting on the disk indefinitely -- there is no
+     * screen that would ever show it again, and nothing else on this server
+     * will notice it is gone.
+     *
+     * The row stays. It costs a few dozen bytes, it holds nothing sensitive,
+     * and it is the answer to "did anybody ever report this incident" -- which
+     * somebody does ask, months later, holding nothing but the code from a
+     * screenshot.
+     */
+    protected function sweepDiagnostics($dry)
+    {
+        if (!config('gesoftlivechat.error_reports')) {
+            return 0;
+        }
+
+        $dropped = 0;
+
+        $reports = ErrorReport::whereNotNull('file')
+            ->whereNotIn('conversation_id', function ($query) {
+                $query->select('id')->from('conversations');
+            })
+            ->get();
+
+        foreach ($reports as $report) {
+            $this->line(sprintf('  drop   %s  conversation #%d is gone', $report->incident_id, $report->conversation_id));
+
+            if (!$dry) {
+                $report->forgetFile();
+            }
+
+            $dropped++;
+        }
+
+        return $dropped;
     }
 
     /**

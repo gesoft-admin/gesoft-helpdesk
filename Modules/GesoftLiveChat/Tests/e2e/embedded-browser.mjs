@@ -310,6 +310,13 @@ console.log('GesoftLiveChat — the panel embedded in an application\n');
 
 // --------------------------------------------------- the button, and the frame
 
+// Who this browser signs in as, in the helpdesk's terms, before anything is
+// said. Opening the panel asks the application's server for a permission, and a
+// permission names the person it was minted for -- taken from the rows written
+// after this moment, since anything else on the instance may have minted one
+// since.
+const sessionMark = Number(one(`select coalesce(max(id),0) from gesoft_live_chat_app_sessions`));
+
 await signIn(USER_A);
 check('the application shows a Support button in its own navbar', await ev(`!!document.getElementById('support-chat-toggle')`), true);
 check('  and nothing of the helpdesk is loaded until it is pressed',
@@ -325,6 +332,23 @@ check('the panel authorises itself and offers the chat, with no form to fill in'
 check('  and never asks who this is', await inFrame(`return R.querySelector('.intro').hidden;`), true);
 
 // -------------------------------------------------------- a chat, both ways
+
+// Whatever this person was left holding by something else -- another suite, a
+// run that failed before it could tidy up, somebody testing by hand -- is
+// closed and unclaimed before a word is said. An open chat would swallow the
+// first message instead of starting a conversation of its own, and the checks
+// below read a history that has to begin here.
+const startedAs = one(`select external_id from gesoft_live_chat_app_sessions
+  where id > ${sessionMark} order by id desc limit 1`);
+if (startedAs) {
+  const was = one(`select id from gesoft_live_chat_app_identities where external_id='${startedAs}' order by id desc limit 1`);
+  if (was) {
+    sql(`update conversations set status=3 where id in (
+      select conversation_id from gesoft_live_chat_app_conversations where identity_id=${was})`);
+    sql(`delete from gesoft_live_chat_app_conversations where identity_id=${was}`);
+    sql(`update gesoft_live_chat_app_identities set conversation_id=null where id=${was}`);
+  }
+}
 
 // Everything from here is found through this one message rather than through
 // "the newest row", so the suite says nothing about whoever else has been using
@@ -342,16 +366,6 @@ check('a message from the panel reaches a chat',
 const convA = one(`select conversation_id from threads where body='${first}'`);
 const customerA = one(`select customer_id from conversations where id=${convA}`);
 const externalA = one(`select external_id from gesoft_live_chat_app_identities where customer_id=${customerA}`);
-
-// Anything this person was left holding by an earlier run -- this suite's, or
-// the error reporting suite's, or a run that failed before it could tidy up --
-// would sit at the top of the history and make the checks below read the wrong
-// row. The conversation this run has just opened stays; everything older is
-// closed and unclaimed, which is what the teardown at the end does anyway.
-sql(`delete from gesoft_live_chat_app_conversations
-     where identity_id in (select id from gesoft_live_chat_app_identities where customer_id=${customerA})
-       and conversation_id <> ${convA}`);
-sql(`update conversations set status=3 where customer_id=${customerA} and id <> ${convA}`);
 
 check('  which is a chat, on the chat channel',
   sql(`select type, channel from conversations where id=${convA}`)[0], ['3', '100']);

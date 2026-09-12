@@ -626,6 +626,84 @@ class ChatController extends Controller
     }
 
     /**
+     * The chat as a panel inside another application's page.
+     *
+     * The same bubble again, open and filling its frame, but this page exists
+     * so that the application embedding it never has to run our script. A
+     * script tag on their page would have their DOM, their cookies and their
+     * session; a cross-origin frame has none of those, and everything that
+     * crosses between them is one `postMessage` at a time, each one addressed
+     * to an origin named in this helpdesk's own settings.
+     *
+     * `?o=` is the origin asking to embed it, and it is checked against the
+     * register rather than believed: an origin nothing registered gets no page
+     * at all, and the page that is served names that one origin — and only
+     * that one — as its permitted framer and as the only address it will post
+     * to. So a site that frames this page by passing somebody else's origin
+     * has told the browser to refuse it.
+     */
+    public function embed(Request $request)
+    {
+        $register = Apps::register(config('gesoftlivechat.apps'));
+        $origin = Apps::allowedOrigin($register, $request->query('o'));
+
+        if ($origin === null) {
+            // Not "forbidden for you": this page is not on offer to anything
+            // that is not a registered application, and saying which of the two
+            // it was would let a caller enumerate the register.
+            abort(404);
+        }
+
+        $lang = Presence::lang($request->query('lang'), (string) config('gesoftlivechat.visitor_lang', 'ro'));
+        $script = __DIR__.'/../../Public/js/widget.js';
+
+        return response()->view('gesoftlivechat::embed', $this->look() + [
+            'lang'    => $lang,
+            'title'   => (string) config('gesoftlivechat.page_title'),
+            'origin'  => $origin,
+            'version' => is_file($script) ? filemtime($script) : 1,
+        ])->withHeaders($this->embedHeaders($origin));
+    }
+
+    /**
+     * What the browser is allowed to do on the embedded page.
+     *
+     * `pageHeaders()` with one difference, and it is the difference the whole
+     * route exists for: `frame-ancestors` names the one application that asked
+     * for this page instead of `'self'`.
+     *
+     * There is deliberately no `X-Frame-Options` here. It has no syntax for a
+     * list of origins — `ALLOW-FROM` was never implemented by Chrome and has
+     * been dropped from Firefox — so the only honest way to say "this one site
+     * may frame this one page" is CSP, which every browser that matters honours
+     * in preference to the older header. The route is therefore registered
+     * without core's `FrameGuard`, rather than with a policy that contradicts
+     * it: see `Http/routes.php`. Every other page of this helpdesk, the
+     * operator interface included, keeps `SAMEORIGIN` exactly as before.
+     */
+    protected function embedHeaders($origin)
+    {
+        return [
+            'Content-Security-Policy' => implode('; ', [
+                "default-src 'none'",
+                "script-src 'self'",
+                "style-src 'self' 'unsafe-inline'",
+                "img-src 'self' data:",
+                "font-src 'self'",
+                "connect-src 'self'",
+                "base-uri 'none'",
+                "form-action 'none'",
+                'frame-ancestors '.$origin,
+            ]),
+            'Referrer-Policy'        => 'strict-origin-when-cross-origin',
+            'X-Content-Type-Options' => 'nosniff',
+            // The page is minted for one application and one visitor's sitting;
+            // a shared cache holding it would be holding the wrong thing.
+            'Cache-Control'          => 'no-store, private',
+        ];
+    }
+
+    /**
      * Where this instance's corresponding source lives, for the link at the
      * foot of the chat window. Empty leaves the window without one.
      *

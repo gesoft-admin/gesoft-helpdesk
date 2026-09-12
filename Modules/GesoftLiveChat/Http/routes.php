@@ -97,6 +97,34 @@ Route::group([
 });
 
 /**
+ * The chat as a panel inside a registered application's page.
+ *
+ * The one route in this helpdesk that is served **without** core's `FrameGuard`,
+ * and the only reason it has a group of its own. `FrameGuard` sets
+ * `X-Frame-Options: SAMEORIGIN` on everything in the `web` and `open` groups,
+ * and that header cannot express "this one other site may frame this one page"
+ * -- `ALLOW-FROM` is gone from every browser that ever had it. So the page
+ * states the rule in CSP `frame-ancestors` instead, naming the single origin
+ * that asked for it, and does not also emit a header saying the opposite.
+ *
+ * Nothing else moves: `web` and `open` keep `FrameGuard`, so the operator
+ * interface, the dashboard and every other page stay `SAMEORIGIN` exactly as
+ * core ships them. The list below is `open` with that one middleware left out.
+ */
+Route::group([
+    'middleware' => [
+        \Illuminate\Routing\Middleware\SubstituteBindings::class,
+        \App\Http\Middleware\HttpsRedirect::class,
+        \App\Http\Middleware\CustomHandle::class,
+        'throttle:'.((int) config('gesoftlivechat.rate_per_minute') ?: 600).',1',
+    ],
+    'prefix'     => \Helper::getSubdirectory(),
+    'namespace'  => 'Modules\GesoftLiveChat\Http\Controllers',
+], function () {
+    Route::get('/chat/embed', 'ChatController@embed')->name('gesoftlivechat.embed');
+});
+
+/**
  * The agent's side. Session and permissions as usual, and no overlap with the
  * visitor routes above: nothing a customer can reach touches this group.
  */

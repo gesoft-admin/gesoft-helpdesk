@@ -6,10 +6,18 @@
  * cannot leak out — and so that embedding it never becomes a negotiation about
  * CSS specificity on somebody else's site.
  *
- * An iframe was the obvious alternative and is the wrong one here: FreeScout
- * sets `X-Frame-Options` globally from `app.x_frame_options`, so framing our
- * own page would mean weakening framing protection across the whole operator
- * interface to gain a bubble.
+ * An iframe is the wrong shape for *this* job: a bubble on a customer's own
+ * website is a guest that has to sit over their layout, and framing it would
+ * mean core's `X-Frame-Options: SAMEORIGIN` had to be weakened for the whole
+ * helpdesk, operator interface included, to gain a bubble.
+ *
+ * Inside one of our own applications it is the right shape, and the trade goes
+ * the other way: there the script would be the guest -- with that application's
+ * DOM, cookies and session -- and a frame has none of those. So the same script
+ * also runs in `data-display="embed"` mode, served from `/chat/embed` into a
+ * frame, talking to the page around it only through `postMessage` and only with
+ * the origin the helpdesk has registered. The framing rule is stated on that
+ * one route in CSP `frame-ancestors`; nothing else about this helpdesk moves.
  *
  * Configure by putting the attributes on the script tag:
  *
@@ -176,6 +184,22 @@
     // is linked to rather than embedded.
     var PAGE = attr('data-display') === 'page';
 
+    // data-display="embed": the chat inside a frame on a page of one of our own
+    // applications, where the person is already signed in. Open and filling the
+    // frame like the page above, but it never asks who anybody is and never
+    // keeps a token: identity is settled between that application's server and
+    // this one, and arrives here as a permission the page around us hands over.
+    var EMBED = attr('data-display') === 'embed';
+
+    // The one origin this page may be framed by, and the only address it will
+    // ever post a message to. The helpdesk names it from its own register --
+    // `?o=` is checked there, not believed -- and it is checked again here
+    // before it is used as a target. Never `*`, and never the referrer: either
+    // of those would be the whole protection, gone.
+    var PARENT = (function (origin) {
+        return EMBED && /^https?:\/\/[A-Za-z0-9.-]{1,253}(:\d{1,5})?$/.test(origin) ? origin : '';
+    })(attr('data-embed') || '');
+
     // data-source: where this instance's source lives, offered at the foot of
     // the chat window on the /chat page. The AGPL asks that people who use the
     // software over a network be offered it, and that page has no FreeScout
@@ -191,7 +215,10 @@
     // themselves a second time; a plain website leaves this empty and the
     // visitor is asked.
     var IDENTITY = (window.GesoftLiveChat && window.GesoftLiveChat.identity) || {};
-    var ASK = attr('data-prechat') !== 'off' && !(IDENTITY.email || IDENTITY.name);
+    // Nobody is asked to introduce themselves in a frame inside an application
+    // they are signed in to -- and nothing they typed there would be believed
+    // anyway, because the identity came from that application's server.
+    var ASK = !EMBED && attr('data-prechat') !== 'off' && !(IDENTITY.email || IDENTITY.name);
     var STORE = 'gesoft-live-chat-token';
     // How often the bubble asks for news: often while the conversation is
     // alive and on screen, rarely when it is quiet or the tab is hidden. See
@@ -209,6 +236,13 @@
     // which is the point on a shared computer, where the next person to open
     // the site must not find the last person's chat waiting for them.
     function store() {
+        // Embedded panels keep nothing. The application asks its own server for
+        // a fresh permission every time a page opens the panel, and the chat
+        // this identity is in is looked up there -- so a conversation survives
+        // moving between pages without a single credential being left behind in
+        // the browser for whoever signs in at this desk next.
+        if (EMBED) { return null; }
+
         try { return window.sessionStorage; } catch (e) { return null; }
     }
 
@@ -234,6 +268,28 @@
     // How far the agents have got with the visitor's messages, from the last
     // poll; null when the server does not keep receipts.
     var receipts = { delivered: 0, seen: 0, seen_at: null };
+
+    // ---------------------------------------------------------------- parent
+
+    // The permission this panel is acting on, handed over by the page around
+    // us after its own server asked the helpdesk for it. Held in this closure
+    // and nowhere else: not in storage, not in the URL, not in the DOM.
+    var appToken = null;
+    // Whether a message left outside our hours could be answered at all, which
+    // depends on the application having told us an address. The panel has no
+    // form to collect one in, so it asks rather than offers and then fails.
+    var canLeaveMessage = false;
+
+    // Everything this page says to the application it is embedded in. One
+    // target origin, named by the helpdesk; if there is none, we say nothing.
+    function toParent(type, value) {
+        if (!PARENT) { return; }
+
+        var message = { type: type };
+        if (value !== undefined) { message.value = value; }
+
+        try { window.parent.postMessage(message, PARENT); } catch (e) {}
+    }
 
     // ---------------------------------------------------------------- markup
 
@@ -367,6 +423,14 @@
         '.wrap.page .panel { display: flex; top: 0; left: 0; right: 0; bottom: 0; margin: auto; width: 760px; max-width: 100vw; height: 860px; max-height: 100%; }',
         '@media (max-height: 860px) { .wrap.page .panel { height: 100%; border-radius: 0; border-top: 0; border-bottom: 0; } }',
         '@media (max-width: 760px) { .wrap.page .panel { width: 100vw; height: 100%; border-radius: 0; border: 0; } }',
+        // Embedded: the panel *is* the frame. No launcher -- the application
+        // has its own button in its own toolbar -- but the close button stays,
+        // because in a frame closing means asking the page around us to put the
+        // panel away, which is a different thing from ending the conversation.
+        '.wrap.embed .launcher { display: none !important; }',
+        '.wrap.embed .panel { position: absolute; top: 0; right: 0; bottom: 0; left: 0;' +
+            ' width: auto; max-width: none; height: auto; max-height: none;' +
+            ' border: 0; border-radius: 0; box-shadow: none; }',
         '.src { padding: 2px 12px 8px; text-align: center; background: var(--bg); }',
         '.src a { font-size: 11px; color: var(--muted); text-decoration: none; }',
         '.src a:hover { text-decoration: underline; }',
@@ -583,6 +647,9 @@
             unread++;
             badge.textContent = String(unread);
             badge.hidden = false;
+            // Embedded, the badge the person actually sees is the application's
+            // own, on the button in its toolbar. Ours is behind a hidden frame.
+            toParent('UNREAD_COUNT', unread);
         }
 
         return row;
@@ -702,6 +769,7 @@
     // one — through the introduction again, because nothing about the old
     // conversation may carry a visitor into the next.
     function forget() {
+        toParent('SESSION_ENDED');
         try { if (store()) { store().removeItem(STORE); } } catch (e) {}
         token = null;
         since = 0;
@@ -781,6 +849,84 @@
 
         // A little jitter, so tabs opened together do not ask together.
         return Math.round(delay * (0.9 + Math.random() * 0.2));
+    }
+
+    // ----------------------------------------------------- embedded identity
+
+    // The permission the application's page has handed over, which its own
+    // server asked this helpdesk for. Taken once, and only in the shape a token
+    // has: anything else is not an argument worth having with a message that
+    // has already failed the origin check.
+    function authorise(value) {
+        if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value) || value === appToken) { return; }
+
+        appToken = value;
+        resumeChat();
+    }
+
+    // Which chat this identity is already in, if any — the question the
+    // introduction form answers for a stranger. An open conversation is picked
+    // up where it was left, whichever page of the application we are on now;
+    // no conversation means the next message opens one.
+    function resumeChat() {
+        post('app/resume', { app_token: appToken })
+            .then(function (res) {
+                show('chat');
+
+                if (!res || res.status !== 'success') {
+                    appToken = null;
+                    note(T.errUnavailable);
+                    return;
+                }
+
+                canLeaveMessage = !!res.offline;
+
+                if (res.chat && res.chat.token) {
+                    remember(res.chat.token);
+                    since = res.chat.since || 0;
+                    pollNow();
+                    startPolling();
+                }
+
+                checkStatus();
+            })
+            .catch(function () { show('chat'); note(T.errNetwork); });
+    }
+
+    // The panel is on screen again: nothing is unread any more, and the
+    // conversation catches up now rather than at the next quiet poll.
+    function shown() {
+        panel.classList.add('open');
+        unread = 0;
+        badge.hidden = true;
+        toParent('UNREAD_COUNT', 0);
+
+        if (token) { pollNow(); startPolling(); }
+        try { input.focus(); } catch (e) {}
+    }
+
+    // Put away, but still listening: replies keep arriving and are counted.
+    function hidden() {
+        panel.classList.remove('open');
+    }
+
+    // The only door the application has into this page. Three things are true
+    // of every message that gets past this line, and none of them is optional:
+    // it came from the origin the helpdesk registered, it came from the window
+    // this page is framed in, and it is one of the three messages there are.
+    // Anything else is dropped without an answer — a page that argues with
+    // messages it does not know is a page that can be probed.
+    if (EMBED) {
+        window.addEventListener('message', function (e) {
+            if (!PARENT || e.origin !== PARENT || e.source !== window.parent) { return; }
+
+            var message = e.data;
+            if (!message || typeof message !== 'object' || typeof message.type !== 'string') { return; }
+
+            if (message.type === 'AUTH') { authorise(message.value); }
+            else if (message.type === 'OPEN') { shown(); }
+            else if (message.type === 'MINIMIZE') { hidden(); }
+        });
     }
 
     function poll() {
@@ -889,6 +1035,7 @@
         launcher.setAttribute('aria-label', T.closeChat);
         unread = 0;
         badge.hidden = true;
+        toParent('UNREAD_COUNT', 0);
 
         if (token) {
             show('chat');
@@ -911,6 +1058,12 @@
 
     function close() {
         if (PAGE) { return; }
+
+        // In a frame there is nothing of ours to hide -- the panel *is* the
+        // frame -- and putting it away belongs to the application around us. So
+        // we ask, and stay exactly as we are until it says it has.
+        if (EMBED) { toParent('MINIMIZE'); return; }
+
         panel.classList.remove('open');
         launcher.setAttribute('aria-expanded', 'false');
         launcher.setAttribute('aria-label', T.openChat);
@@ -1019,6 +1172,11 @@
         var text = input.value.trim();
         if (!text) { return; }
 
+        // The page around us has not handed over its permission yet, which
+        // takes a moment on a page that has only just loaded. What they wrote
+        // stays in the box.
+        if (EMBED && !token && !appToken) { return; }
+
         // The conversation in this tab is over and the visitor has to say who
         // they are again. Carry what they just wrote into the introduction
         // rather than sending a first message with no name and no address.
@@ -1046,12 +1204,22 @@
             }
         }
 
-        var path = token ? 'send' : 'start';
+        // Outside our hours an embedded first message becomes an email
+        // conversation instead of a chat nobody will answer tonight — but only
+        // when there is an address to answer it at, which the helpdesk said
+        // when the panel resumed.
+        var path = token ? 'send'
+            : (EMBED && online === false && canLeaveMessage ? 'offline' : 'start');
         var payload = { token: token, message: text };
 
         // No token yet means this is the first message, which happens here only
         // when the host page supplied the identity and the form was skipped.
-        if (!token) {
+        if (!token && EMBED) {
+            // The permission instead of a name and an address. Who this is was
+            // settled between two servers; nothing typed in this frame is
+            // consulted, and nothing typed in it could be.
+            payload.app_token = appToken;
+        } else if (!token) {
             payload.name = IDENTITY.name || '';
             payload.email = IDENTITY.email || '';
             payload.phone = IDENTITY.phone || '';
@@ -1085,6 +1253,14 @@
                         setTimeout(function () { sendBtn.disabled = false; },
                             Math.max(1, parseInt(res.retry_after, 10) || 5) * 1000);
                     }
+                    return;
+                }
+
+                // Left as a message because nobody was available: there is no
+                // conversation to poll, only an answer coming by email.
+                if (path === 'offline') {
+                    fresh();
+                    show('done');
                     return;
                 }
 
@@ -1195,10 +1371,19 @@
 
     words();
     if (PAGE) { $('.wrap').classList.add('page'); }
+    if (EMBED) { $('.wrap').classList.add('embed'); }
     document.body.appendChild(host);
 
     // A reload in the same tab picks the conversation back up without clicking.
-    if (PAGE) {
+    if (EMBED) {
+        // Open from the start: this frame is only ever on screen because the
+        // application put it there. Empty, though, until the permission
+        // arrives — READY is what asks for it.
+        panel.classList.add('open');
+        endBtn.hidden = true;
+        show('chat');
+        toParent('READY');
+    } else if (PAGE) {
         endBtn.hidden = !token;
         open();
     } else if (token) {

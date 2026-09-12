@@ -110,6 +110,16 @@ class SweepChats extends Command
      * `gone_after` — see `Support/Presence.php` for why a goodbye alone is not
      * enough. A session whose conversation has closed is over whatever the
      * visitor is doing, so it is marked ended here and not looked at again.
+     *
+     * The question is asked **per conversation, not per session**. One
+     * conversation can have several live sessions: a chat embedded in an
+     * application mints a new one each time the panel is opened on a page that
+     * has just loaded, and the tabs left behind are quiet by definition. Asked
+     * per session, every one of those would report the visitor as having left
+     * while they sat there typing, and the operator would read a conversation
+     * full of "the visitor left" about somebody who never did. So a visitor has
+     * left only when every session on that conversation has gone quiet, and the
+     * line is written once, against the newest.
      */
     protected function sweepPresence($dry)
     {
@@ -121,33 +131,56 @@ class SweepChats extends Command
         $cutoff = now()->subSeconds($gone_after);
         $left = 0;
 
-        $sessions = ChatSession::whereNull('ended_at')
-            ->whereNull('left_noted_at')
+        // Conversations worth looking at: one quiet session is enough to ask
+        // the question, and the answer then needs all of that conversation's.
+        $conversation_ids = ChatSession::whereNull('ended_at')
             ->where(function ($query) use ($cutoff) {
                 $query->where('left_at', '<=', $cutoff)
                     ->orWhere('last_seen_at', '<=', $cutoff);
             })
-            ->get();
+            ->pluck('conversation_id')
+            ->unique()
+            ->values();
 
-        foreach ($sessions as $session) {
-            if (!$session->isConversationOpen()) {
+        if ($conversation_ids->isEmpty()) {
+            return 0;
+        }
+
+        $groups = ChatSession::whereIn('conversation_id', $conversation_ids)
+            ->whereNull('ended_at')
+            ->orderBy('id')
+            ->get()
+            ->groupBy('conversation_id');
+
+        foreach ($groups as $sessions) {
+            $newest = $sessions->last();
+
+            if (!$newest->isConversationOpen()) {
                 if (!$dry) {
-                    $session->ended_at = now();
-                    $session->save();
+                    foreach ($sessions as $session) {
+                        $session->ended_at = now();
+                        $session->save();
+                    }
                 }
                 continue;
             }
 
-            if ($session->state($gone_after) !== Presence::LEFT) {
+            // Any tab still reporting in means the visitor is here, whichever
+            // tab it is.
+            $here = $sessions->first(function ($session) use ($gone_after) {
+                return $session->state($gone_after) === Presence::HERE;
+            });
+
+            if ($here || $newest->left_noted_at) {
                 continue;
             }
 
-            $this->line(sprintf('  left   #%d', $session->conversation_id));
+            $this->line(sprintf('  left   #%d', $newest->conversation_id));
 
             if (!$dry) {
-                $session->note(Presence::ACTION_LEFT);
-                $session->left_noted_at = now();
-                $session->save();
+                $newest->note(Presence::ACTION_LEFT);
+                $newest->left_noted_at = now();
+                $newest->save();
             }
             $left++;
         }

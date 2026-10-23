@@ -1122,7 +1122,28 @@
     // server asked this helpdesk for. Taken once, and only in the shape a token
     // has: anything else is not an argument worth having with a message that
     // has already failed the origin check.
+    //
+    // Or an assertion its server signed, from an application connected with a
+    // key: exchanged here for the same permission, and then forgotten. It is
+    // good once anyway, so there is nothing to keep it for.
+    var lastAssertion = null;
     function authorise(value) {
+        if (typeof value === 'string' && value.length <= 4096 && value !== lastAssertion
+            && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value)) {
+            lastAssertion = value;
+            post('app/assertion', { assertion: value })
+                .then(function (res) {
+                    if (!res || res.status !== 'success' || !res.token) {
+                        show('chat');
+                        note(T.errUnavailable);
+                        return;
+                    }
+                    authorise(res.token);
+                })
+                .catch(function () { show('chat'); note(T.errNetwork); });
+            return;
+        }
+
         if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value) || value === appToken) { return; }
 
         appToken = value;

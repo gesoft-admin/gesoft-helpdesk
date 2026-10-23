@@ -59,6 +59,12 @@ Route::group([
     // visitor's token cannot already do and names no conversation of its own.
     Route::post('/app/resume', 'AppController@resume')->name('gesoftlivechat.app.resume');
 
+    // The same permission `app/session` mints, for an application connected
+    // with a key: the embedded page brings the assertion the application's
+    // own page handed it, and no server of the application ever calls us.
+    // See `Support/Assertion.php`.
+    Route::post('/app/assertion', 'AppController@assertion')->name('gesoftlivechat.app.assertion');
+
     // The customer's own conversations: the list, one of them, a reply into
     // one, and how far they have read it. Every one of these is authorised
     // through the identity's explicit mapping, never through the customer and
@@ -185,6 +191,25 @@ Route::group([
     Route::post('/gesoft-live-chat/blocks/{id}/delete', [
         'uses' => 'AgentController@unblock',
     ])->name('gesoftlivechat.agent.unblock');
+
+    // Applications connected from inside themselves, for administrators: the
+    // list, the popup an application opens to connect, approving it, and
+    // revoking. See `ConnectController`.
+    Route::get('/gesoft-live-chat/apps', [
+        'uses' => 'ConnectController@index',
+    ])->name('gesoftlivechat.apps');
+
+    Route::get('/gesoft-live-chat/apps/connect', [
+        'uses' => 'ConnectController@connect',
+    ])->name('gesoftlivechat.apps.connect');
+
+    Route::post('/gesoft-live-chat/apps/connect', [
+        'uses' => 'ConnectController@approve',
+    ])->name('gesoftlivechat.apps.approve');
+
+    Route::post('/gesoft-live-chat/apps/{id}/revoke', [
+        'uses' => 'ConnectController@revoke',
+    ])->name('gesoftlivechat.apps.revoke');
 
     // The one way a diagnostic report is ever read. Session, `auth` in the
     // controller, and the conversation's own policy -- deliberately not core's

@@ -12,6 +12,7 @@
  */
 
 require __DIR__.'/../Support/Apps.php';
+require __DIR__.'/../Support/Assertion.php';
 
 use Modules\GesoftLiveChat\Support\Apps;
 
@@ -56,6 +57,37 @@ check('http on a private address is allowed',
     Apps::register(['a' => ['token' => $secret, 'origin' => 'http://192.168.40.12']])['a']['origin'], 'http://192.168.40.12');
 check('  and on localhost',
     Apps::register(['a' => ['token' => $secret, 'origin' => 'http://localhost:8080']])['a']['origin'], 'http://localhost:8080');
+
+// An application installed at a customer's office is often reached by a name
+// that only resolves there. Those are private too; a public name is not.
+check('http on a single-label name is allowed',
+    Apps::register(['a' => ['token' => $secret, 'origin' => 'http://erp:8080']])['a']['origin'], 'http://erp:8080');
+check('  and on an internal suffix',
+    Apps::register(['a' => ['token' => $secret, 'origin' => 'http://gevcon.firma.local']])['a']['origin'], 'http://gevcon.firma.local');
+check('  but not on a name that merely contains one',
+    array_keys(Apps::register(['a' => ['token' => $secret, 'origin' => 'http://local.example.ro']])), []);
+check('  nor on a public address',
+    array_keys(Apps::register(['a' => ['token' => $secret, 'origin' => 'http://8.8.8.8']])), []);
+check('  nor on one that only starts like a private one',
+    array_keys(Apps::register(['a' => ['token' => $secret, 'origin' => 'http://10.example.ro']])), []);
+
+// --------------------------------------------------- connected with a key
+
+$pair = sodium_crypto_sign_keypair();
+$public = rtrim(strtr(base64_encode(sodium_crypto_sign_publickey($pair)), '+/', '-_'), '=');
+$keyed = Apps::register(['k' => ['key' => $public, 'origin' => 'https://k.example.ro']]);
+check('a public key in place of a secret registers', array_keys($keyed), ['k']);
+check('  kept as base64url', $keyed['k']['key'], $public);
+check('  written with standard base64 too',
+    Apps::register(['k' => ['key' => base64_encode(sodium_crypto_sign_publickey($pair)), 'origin' => 'https://k.example.ro']])['k']['key'], $public);
+check('a key that is not 32 bytes does not', array_keys(Apps::register(['k' => ['key' => 'abcd', 'origin' => 'https://k.example.ro']])), []);
+check('a short secret beside a key is dropped, the key kept',
+    Apps::register(['k' => ['token' => 'short', 'key' => $public, 'origin' => 'https://k.example.ro']])['k']['token'], '');
+check('a key-only application cannot authenticate with a secret',
+    Apps::authenticate($keyed, 'k', ''), null);
+check('  nor with its own key as one', Apps::authenticate($keyed, 'k', $public), null);
+check('an application with both still authenticates with its secret',
+    Apps::authenticate(Apps::register(['k' => ['token' => $secret, 'key' => $public, 'origin' => 'https://k.example.ro']]), 'k', $secret)['origin'], 'https://k.example.ro');
 
 // A provider name is a database key and part of a cache key.
 check('a provider name is narrow', Apps::provider('MYAPP'), 'myapp');

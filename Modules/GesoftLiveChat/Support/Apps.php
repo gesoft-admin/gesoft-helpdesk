@@ -7,10 +7,15 @@ namespace Modules\GesoftLiveChat\Support;
  * already signed in, with no framework in it.
  *
  * An application here is three things and all three are required: a `provider`
- * name that identities are filed under, a shared `token` its server proves
- * itself with, and the `origin` its pages are served from. Anything missing one
- * of them is not registered at all — a half-configured application must fail
- * closed rather than become an open door with a name.
+ * name that identities are filed under, a way to prove it is that application,
+ * and the `origin` its pages are served from. Anything missing one of them is
+ * not registered at all — a half-configured application must fail closed
+ * rather than become an open door with a name.
+ *
+ * The proof is a shared `token` its server presents (configured in `.env`), an
+ * Ed25519 public `key` it signs assertions with (connected from the
+ * application, see `Support/Assertion.php`), or both while an application moves
+ * from the first to the second.
  *
  * The origin does two separate jobs, and it is the same value on purpose: it is
  * what the embedded chat page will allow itself to be framed by, and it is what
@@ -18,8 +23,9 @@ namespace Modules\GesoftLiveChat\Support;
  * authorise an application in one direction and not the other.
  *
  * Nothing here trusts anything a browser said. The token arrives server to
- * server, and these rules only ever *narrow* what the configuration already
- * granted.
+ * server; an assertion may come through a browser, but it is signed by the
+ * application and checked against its key. These rules only ever *narrow*
+ * what the configuration already granted.
  */
 final class Apps
 {
@@ -43,13 +49,20 @@ final class Apps
             $provider = self::provider($provider);
             $token    = is_array($app) ? (string) ($app['token'] ?? '') : '';
             $origin   = self::origin(is_array($app) ? ($app['origin'] ?? '') : '');
+            $key      = Assertion::normalizeKey(is_array($app) ? ($app['key'] ?? '') : '');
 
-            if ($provider === null || $origin === null || strlen($token) < self::MIN_TOKEN) {
+            // A token too short to be a secret is no token, rather than a weak one.
+            if (strlen($token) < self::MIN_TOKEN) {
+                $token = '';
+            }
+
+            if ($provider === null || $origin === null || ($token === '' && $key === null)) {
                 continue;
             }
 
             $apps[$provider] = [
                 'token'  => $token,
+                'key'    => $key,
                 'origin' => $origin,
                 'name'   => self::name(is_array($app) ? ($app['name'] ?? '') : '', $provider),
             ];
@@ -78,8 +91,9 @@ final class Apps
      * `https://app.example.com/` and `https://app.example.com/backend` both
      * become `https://app.example.com`, because that is what a browser compares
      * against and what `frame-ancestors` understands. `http` is allowed only
-     * for a private address, which is how the test environment is reached and
-     * is never how a real application is.
+     * for a host on a private network — see `isPrivateHost()` — which is how
+     * an application installed on a customer's own network is often reached,
+     * and never how a public one is.
      */
     public static function origin($origin)
     {
@@ -99,7 +113,13 @@ final class Apps
     /**
      * Whether plain HTTP is excusable for this host: a machine on a private
      * network, or this one. Everything else has to be HTTPS, because the
-     * application's server hands a bearer token to that page.
+     * page served from it is handed a credential.
+     *
+     * A private network is a private address, or a name that only resolves
+     * inside one: a single label (`erp`, `server01`) or one of the suffixes
+     * reserved or customary for internal names. An application installed at a
+     * customer's office is as often reached as `http://erp.local` as by its
+     * address, and a public name never ends in these.
      */
     public static function isPrivateHost($host)
     {
@@ -109,7 +129,15 @@ final class Apps
             return true;
         }
 
-        return (bool) preg_match('/^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/', $host);
+        if (preg_match('/^\d+\.\d+\.\d+\.\d+$/', $host)) {
+            return (bool) preg_match('/^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/', $host);
+        }
+
+        if (strpos($host, '.') === false) {
+            return true;
+        }
+
+        return (bool) preg_match('/\.(local|lan|internal|intranet|corp|home\.arpa|localdomain)$/', $host);
     }
 
     public static function name($name, $provider)
@@ -138,12 +166,14 @@ final class Apps
     public static function authenticate($register, $provider, $presented)
     {
         $app = self::find($register, $provider);
-        $expected = $app ? $app['token'] : str_repeat("\0", self::MIN_TOKEN);
+        // An application connected with a key alone has no secret to match,
+        // and is compared against the decoy like an unregistered one.
+        $expected = $app && $app['token'] !== '' ? $app['token'] : str_repeat("\0", self::MIN_TOKEN);
         $presented = (string) $presented;
 
         $ok = hash_equals(hash('sha256', $expected), hash('sha256', $presented));
 
-        return $app && $ok ? $app : null;
+        return $app && $app['token'] !== '' && $ok ? $app : null;
     }
 
     /**

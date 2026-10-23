@@ -277,8 +277,8 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
             ])->render();
         }, 20, 4);
 
-        // Manage → Blocked chat visitors, for administrators, next to core's
-        // own management pages.
+        // Manage → Blocked chat visitors and Connected applications, for
+        // administrators, next to core's own management pages.
         \Eventy::addAction('menu.manage.append', function () {
             $user = auth()->user();
             if (!$user || !$user->isAdmin()) {
@@ -286,6 +286,7 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
             }
 
             echo '<li><a href="'.e(route('gesoftlivechat.agent.blocks')).'">'.e(__('Blocked chat visitors')).'</a></li>';
+            echo '<li><a href="'.e(route('gesoftlivechat.apps')).'">'.e(__('Connected applications')).'</a></li>';
         });
 
         // The agent-side indicator. Core never puts a count on its own Chats

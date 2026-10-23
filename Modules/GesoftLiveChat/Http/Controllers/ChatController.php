@@ -15,6 +15,7 @@ use Modules\GesoftLiveChat\Entities\AppSession;
 use Modules\GesoftLiveChat\Entities\ChatBlock;
 use Modules\GesoftLiveChat\Entities\ChatReceipt;
 use Modules\GesoftLiveChat\Entities\ChatSession;
+use Modules\GesoftLiveChat\Entities\ConnectedApp;
 use Modules\GesoftLiveChat\Support\Apps;
 use Modules\GesoftLiveChat\Support\Message;
 use Modules\GesoftLiveChat\Support\Origin;
@@ -696,7 +697,7 @@ class ChatController extends Controller
      */
     public function embed(Request $request)
     {
-        $register = Apps::register(config('gesoftlivechat.apps'));
+        $register = ConnectedApp::register();
         $origin = Apps::allowedOrigin($register, $request->query('o'));
 
         if ($origin === null) {
@@ -885,7 +886,7 @@ class ChatController extends Controller
             $token = is_array($raw) ? ($raw['app_token'] ?? null) : null;
         }
 
-        return AppSession::findByToken($token, Apps::register(config('gesoftlivechat.apps')));
+        return AppSession::findByToken($token, ConnectedApp::register());
     }
 
     /**

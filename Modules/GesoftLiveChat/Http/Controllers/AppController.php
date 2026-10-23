@@ -9,9 +9,12 @@ use App\Thread;
 use Modules\GesoftLiveChat\Entities\AppConversation;
 use Modules\GesoftLiveChat\Entities\AppIdentity;
 use Modules\GesoftLiveChat\Entities\AppSession;
+use Modules\GesoftLiveChat\Entities\AssertionId;
 use Modules\GesoftLiveChat\Entities\ChatSession;
+use Modules\GesoftLiveChat\Entities\ConnectedApp;
 use Modules\GesoftLiveChat\Entities\ErrorReport;
 use Modules\GesoftLiveChat\Support\Apps;
+use Modules\GesoftLiveChat\Support\Assertion;
 use Modules\GesoftLiveChat\Support\Diagnostic;
 use Modules\GesoftLiveChat\Support\History;
 use Modules\GesoftLiveChat\Support\Message;
@@ -88,6 +91,58 @@ class AppController extends Controller
         if ($created) {
             \Log::info(self::LOG_PREFIX.': application identity registered', [
                 'provider'    => $provider,
+                'customer_id' => $customer->id,
+            ]);
+        }
+
+        return response()->json([
+            'status'     => 'success',
+            'token'      => $token,
+            'expires_in' => max(60, $ttl),
+        ]);
+    }
+
+    /**
+     * Mint a browser's permission from a signed assertion, for an application
+     * connected with a key.
+     *
+     * The same permission `session` mints, reached the other way round: the
+     * application's server never calls us — it may have no route to us at all —
+     * but signs a short JWT that its page hands to the embedded chat, and the
+     * chat brings here. See `Support/Assertion.php` for what a token must be.
+     *
+     * Every refusal is the same 401, whatever failed: the reason is logged for
+     * whoever is connecting an application, and is nobody else's business.
+     */
+    public function assertion(Request $request)
+    {
+        $result = $this->checkAssertion($request->input('assertion'), $this->register());
+
+        if (!$result) {
+            return $this->fail('unauthorized', 401);
+        }
+
+        $claims = $result['claims'];
+
+        list($customer, $identity, $created) = AppIdentity::resolve(
+            $claims['iss'],
+            $claims['sub'],
+            $this->cleanName($claims['name'] ?? ''),
+            $this->cleanEmail($claims['email'] ?? '')
+        );
+
+        $customer->addChannel($this->channel(), 'customer-'.$customer->id);
+
+        // The address this request came from is the person's own browser, not
+        // an application's server, so it is the one an agent would block.
+        $ttl = (int) config('gesoftlivechat.app_session_ttl');
+        list(, $token) = AppSession::open($identity, $ttl, $request->ip(), $this->cleanRoute($claims['route'] ?? ''));
+
+        AppSession::sweepExpired();
+
+        if ($created) {
+            \Log::info(self::LOG_PREFIX.': application identity registered', [
+                'provider'    => $claims['iss'],
                 'customer_id' => $customer->id,
             ]);
         }
@@ -178,7 +233,7 @@ class AppController extends Controller
         $register = $this->register();
         $provider = (string) $request->input('provider', '');
 
-        $app = Apps::authenticate($register, $provider, $this->bearer($request));
+        $app = $this->authenticateServer($request, $register);
 
         if (!$app) {
             return $this->fail('unauthorized', 401);
@@ -564,7 +619,7 @@ class AppController extends Controller
         }
 
         $register = $this->register();
-        $app = Apps::authenticate($register, (string) $request->input('provider', ''), $this->bearer($request));
+        $app = $this->authenticateServer($request, $register);
 
         if (!$app) {
             return $this->fail('unauthorized', 401);
@@ -907,7 +962,7 @@ class AppController extends Controller
     /** The registered applications, as `Support/Apps.php` will have them. */
     protected function register()
     {
-        return Apps::register(config('gesoftlivechat.apps'));
+        return ConnectedApp::register();
     }
 
     /**
@@ -927,6 +982,74 @@ class AppController extends Controller
     }
 
     /**
+     * The application calling server to server, or null.
+     *
+     * Its shared secret, if it was configured with one; otherwise an assertion
+     * in the same header, about the very person the call names. A key-only
+     * application cannot use an assertion for one person to ask about another.
+     */
+    protected function authenticateServer(Request $request, $register)
+    {
+        $provider = (string) $request->input('provider', '');
+        $bearer = $this->bearer($request);
+
+        $app = Apps::authenticate($register, $provider, $bearer);
+        if ($app) {
+            return $app;
+        }
+
+        if (substr_count($bearer, '.') !== 2) {
+            return null;
+        }
+
+        $result = $this->checkAssertion($bearer, $register);
+
+        if (!$result
+            || $result['claims']['iss'] !== Apps::provider($provider)
+            || $result['claims']['sub'] !== Apps::externalId($request->input('external_user_id'))) {
+            return null;
+        }
+
+        return $result['app'];
+    }
+
+    /**
+     * A verified, unspent assertion — `Assertion::verify`'s answer — or null.
+     * Spends it.
+     */
+    protected function checkAssertion($token, $register)
+    {
+        $result = Assertion::verify($token, $register, $this->audience(), time());
+
+        if (isset($result['error'])) {
+            \Log::info(self::LOG_PREFIX.': assertion refused', ['reason' => $result['error']]);
+
+            return null;
+        }
+
+        $claims = $result['claims'];
+
+        if (!AssertionId::spend($claims['iss'], $claims['jti'], $claims['exp'])) {
+            \Log::info(self::LOG_PREFIX.': assertion refused', ['reason' => 'replayed', 'provider' => $claims['iss']]);
+
+            return null;
+        }
+
+        ConnectedApp::touchUsed($claims['iss']);
+
+        return $result;
+    }
+
+    /**
+     * What an assertion's `aud` must say: this helpdesk's own address, the one
+     * an application is told when it is connected.
+     */
+    public static function audience()
+    {
+        return rtrim((string) config('app.url'), '/');
+    }
+
+    /**
      * The shared secret, from the one header it may arrive in.
      *
      * Not a query parameter and not a form field: those end up in access logs
@@ -941,14 +1064,24 @@ class AppController extends Controller
 
     protected function name(Request $request)
     {
-        $name = trim(strip_tags((string) $request->input('name', '')));
+        return $this->cleanName($request->input('name', ''));
+    }
+
+    protected function cleanName($name)
+    {
+        $name = trim(strip_tags(is_string($name) ? $name : ''));
 
         return mb_substr($name, 0, 40);
     }
 
     protected function email(Request $request)
     {
-        $email = trim((string) $request->input('email', ''));
+        return $this->cleanEmail($request->input('email', ''));
+    }
+
+    protected function cleanEmail($email)
+    {
+        $email = trim(is_string($email) ? $email : '');
 
         return $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) ? mb_substr($email, 0, 191) : null;
     }
@@ -977,7 +1110,12 @@ class AppController extends Controller
      */
     protected function route(Request $request)
     {
-        $route = trim((string) $request->input('route', ''));
+        return $this->cleanRoute($request->input('route', ''));
+    }
+
+    protected function cleanRoute($route)
+    {
+        $route = trim(is_string($route) ? $route : '');
 
         return $route !== '' && preg_match('~^[A-Za-z0-9/_.-]{1,191}$~', $route) ? $route : null;
     }

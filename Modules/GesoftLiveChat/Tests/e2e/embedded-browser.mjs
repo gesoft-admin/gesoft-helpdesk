@@ -247,6 +247,7 @@ const badge = () => ev(`(() => { const b = document.querySelector('#support-chat
 const clickSupport = () => ev(`document.getElementById('support-chat-toggle').click(), true`);
 const authorised = () => inFrame(`return R.querySelector('.panel').getAttribute('data-mode') === 'chat' && !R.querySelector('.form').hidden;`);
 const transcript = () => inFrame(`return [...R.querySelectorAll('.row .msg')].map(b => b.textContent).join(' | ');`);
+const notes = () => inFrame(`return [...R.querySelectorAll('.log .note')].map(n => n.textContent);`);
 
 // The history, as the person sees it: what the list control offers, the rows
 // in it, and the state written on each.
@@ -592,14 +593,70 @@ check('both conversations are in the history', [
 ], [true, true]);
 check('  newest first', (listed[0] || {}).id, Number(convB));
 
-// The one that matters: answering the old one must not land in the new one.
+// The one that matters. convA is closed and convB is open: writing under convA
+// must not reopen it beside convB, which is how one person came to have two
+// live chats. The message goes into the chat already open.
 await selectRow(convA);
 const again = `Inca ceva pe cea veche ${RUN}`;
 await say(again);
-check('a reply to the older conversation goes to the older conversation',
-  await waitFor(() => one(`select conversation_id from threads where body='${again}'`) === String(convA)), true);
-check('  and not into the newer one',
-  one(`select count(*) from threads where conversation_id=${convB} and body='${again}'`), '0');
+check('a reply to a closed conversation, with another open, goes into the open one',
+  await waitFor(() => one(`select conversation_id from threads where body='${again}'`) === String(convB)), true);
+check('  the closed one stays closed', one(`select status from conversations where id=${convA}`), '3');
+const identityA = one(`select identity_id from gesoft_live_chat_app_conversations where conversation_id=${convB}`);
+check('  and this person has one open chat, not two', one(`select count(*) from conversations c
+  join gesoft_live_chat_app_conversations m on m.conversation_id=c.id
+  where m.identity_id=${identityA} and c.status in (1,2)`), '1');
+// A line names the other conversation by the number an agent sees: the id,
+// or the `number` column with custom numbering on.
+const names = (id, action, other) => one(`select count(*) from threads
+  where conversation_id=${id} and type=4 and action_type=${action}
+  and (meta like '%:${other}}' or meta like concat('%:', (select number from conversations where id=${other}), '}'))`);
+check('  the open one has a line naming the closed one',
+  names(convB, 104, convA), '1');
+check('  and the closed one a line naming where the message went',
+  names(convA, 105, convB), '1');
+check('the panel moves to the open conversation, the message in it',
+  await waitFor(async () => (await drawnConversation()) === String(convB) && (await transcript()).includes(again)), true);
+check('  and says why', (await notes()).some((n) => n.includes('deja o conversație deschisă')), true);
+check('  an open conversation is still answered where it is',
+  await (async () => {
+    await openConversation(convB);
+    const here = `Pe cea deschisa ${RUN}`;
+    await say(here);
+    return waitFor(() => one(`select conversation_id from threads where body='${here}'`) === String(convB));
+  })(), true);
+
+// ------------------------------------------------ 7: closed a long time ago
+
+// Nothing else open now, and convA closed a month ago: a new question, not a
+// month-old ticket back in front of whoever closed it.
+check('an agent closes the open one', await agentClose(csrf, convB), 'success');
+sql(`update conversations set closed_at = now() - interval 30 day where id=${convA}`);
+await openConversation(convA);
+const monthLater = `Dupa o luna ${RUN}`;
+await say(monthLater);
+check('writing under a conversation closed a month ago starts a new one',
+  await waitFor(() => {
+    const id = one(`select conversation_id from threads where body='${monthLater}'`);
+    return !!id && id !== String(convA) && id !== String(convB);
+  }), true);
+const convC = one(`select conversation_id from threads where body='${monthLater}'`);
+check('  the old one stays closed', one(`select status from conversations where id=${convA}`), '3');
+check('  the new one is an open chat', one(`select concat(type, '/', status) from conversations where id=${convC}`), '3/1');
+check('  in this person\'s history', one(`select count(*) from gesoft_live_chat_app_conversations where conversation_id=${convC} and identity_id=${identityA}`), '1');
+check('  naming the old one', names(convC, 104, convA), '1');
+check('the panel says a new one was started',
+  await waitFor(async () => (await notes()).some((n) => n.includes('am început una nouă'))), true);
+
+// And the same conversation closed yesterday is reopened, as before.
+check('an agent closes the new one', await agentClose(csrf, convC), 'success');
+sql(`update conversations set closed_at = now() - interval 1 day where id=${convA}`);
+await openConversation(convA);
+const nextDay = `A doua zi ${RUN}`;
+await say(nextDay);
+check('closed yesterday, nothing else open: reopened and written in',
+  await waitFor(() => one(`select conversation_id from threads where body='${nextDay}'`) === String(convA)), true);
+check('  open again', await waitFor(() => one(`select status from conversations where id=${convA}`) === '1'), true);
 
 // --------------------------- 4: two application accounts, one FreeScout customer
 
@@ -646,7 +703,20 @@ if (APP_TOKEN) {
   check('  with the same answer a conversation that does not exist would give',
     (await call('app/conversation', { app_token: two_token, conversation_id: 999999999 })).status, 404);
 
-  sql(`update conversations set status=3 where id=${mine}`);
+  // A message left outside hours is theirs too, and in their history.
+  const leftBody = `Mesaj lasat offline ${RUN}`;
+  const left = await call('offline', { app_token: one_token, message: leftBody, lang: 'ro' });
+  check('a message left outside hours is accepted', left.body.status, 'success');
+  const leftConv = one(`select conversation_id from threads where body='${leftBody}'`);
+  check('  as an email conversation', one(`select type from conversations where id=${leftConv}`), '1');
+  check('  in the history of the person who left it',
+    ((await call('app/history', { app_token: one_token })).body.conversations || []).some((c) => String(c.id) === String(leftConv)), true);
+  check('  and not in the other\'s, though they share the customer',
+    ((await call('app/history', { app_token: two_token })).body.conversations || []).length, 0);
+  check('  without becoming the chat they are in',
+    one(`select conversation_id from gesoft_live_chat_app_identities where external_id='pair-one-${RUN}'`), mine);
+
+  sql(`update conversations set status=3 where id in (${mine}, ${leftConv})`);
 } else {
   console.log('  --    the shared-customer check needs GLC_APP_TOKEN; skipped');
 }

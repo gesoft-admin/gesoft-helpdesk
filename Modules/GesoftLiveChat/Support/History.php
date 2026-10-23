@@ -85,6 +85,53 @@ final class History
         return self::isVisible($status, $state);
     }
 
+    // Where a message written into a conversation from the history goes.
+    const REPLY_HERE    = 'here';
+    const REPLY_CURRENT = 'current';
+    const REPLY_NEW     = 'new';
+
+    /**
+     * Where a message written into a conversation out of the history goes.
+     *
+     *   here     into that conversation. It is still open, or it was closed
+     *            recently enough that the answer is plainly about the same
+     *            thing, and core reopens it.
+     *   current  into the chat this person already has open. Reopening the old
+     *            one as well would leave two live chats for one person — two
+     *            places for an agent to answer, and one the person cannot see.
+     *   new    into a new conversation. Closed longer ago than `$reopen_days`
+     *            is a new question; reviving a month-old ticket puts it back in
+     *            front of whoever closed it, with a month of context nobody
+     *            needs, and moves a resolved ticket's numbers.
+     *
+     * An open conversation is always answered where it is, even when another
+     * one is open as well: writing into it opens nothing new. Both `current`
+     * and `new` leave a line in each conversation naming the other, so the
+     * thread can be followed from either end.
+     *
+     * `$closed_at` and `$now` are timestamps; a closed conversation with no
+     * `closed_at` is judged by whatever the caller had instead. Zero
+     * `$reopen_days` means any age may be reopened.
+     */
+    public static function replyGoes($status, $closed_at, $now, $reopen_days, $other_open)
+    {
+        if (self::mainStatus($status) !== self::CLOSED) {
+            return self::REPLY_HERE;
+        }
+
+        if ($other_open) {
+            return self::REPLY_CURRENT;
+        }
+
+        $reopen_days = (int) $reopen_days;
+
+        if ($reopen_days > 0 && $closed_at !== null && $now - (int) $closed_at > $reopen_days * 86400) {
+            return self::REPLY_NEW;
+        }
+
+        return self::REPLY_HERE;
+    }
+
     /**
      * What to call a status to the person who raised it.
      *

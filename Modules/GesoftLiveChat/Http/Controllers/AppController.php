@@ -349,6 +349,11 @@ class AppController extends Controller
      * On the way out the conversation becomes this person's current chat and
      * gets a session token, so the panel carries straight on in live chat
      * rather than making them find it again.
+     *
+     * Not every closed conversation is reopened. While this person has another
+     * chat open, the message goes into that one; closed longer ago than
+     * `reopen_days`, it starts a new one. `History::replyGoes` has the rule and
+     * `continueElsewhere` does the moving.
      */
     public function reply(Request $request)
     {
@@ -383,6 +388,21 @@ class AppController extends Controller
             return $this->fail('empty', 400);
         }
 
+        $open = $identity->openConversation();
+        $closed_at = $conversation->closed_at ?: ($conversation->last_reply_at ?: $conversation->updated_at);
+
+        $goes = History::replyGoes(
+            $conversation->status,
+            $closed_at ? $closed_at->getTimestamp() : null,
+            time(),
+            config('gesoftlivechat.reopen_days'),
+            $open && (int) $open->id !== (int) $conversation->id
+        );
+
+        if ($goes !== History::REPLY_HERE) {
+            return $this->continueElsewhere($request, $session, $identity, $link, $goes);
+        }
+
         $thread = Thread::createExtended(
             [
                 'type'  => Thread::TYPE_CUSTOMER,
@@ -414,6 +434,73 @@ class AppController extends Controller
             'status' => 'success',
             'chat'   => ['token' => $token, 'since' => 0],
             'id'     => $thread->id ?? 0,
+        ]);
+    }
+
+    /**
+     * A message from the history that goes somewhere other than where it was
+     * written: the chat this person has open, or a new one.
+     *
+     * Opening or joining a chat is `start`'s job, blocks and limits included,
+     * so it is asked to do it — and refusals come back exactly as `start` gives
+     * them. What is added here is the trail: a line in each conversation naming
+     * the other, so an agent reading either one can follow it.
+     *
+     * The answer says `moved`, so the panel knows the conversation on screen is
+     * no longer the one the message is in.
+     */
+    protected function continueElsewhere(Request $request, AppSession $session, AppIdentity $identity, AppConversation $link, $goes)
+    {
+        $from = $link->conversation;
+
+        $response = app(ChatController::class)->startForApp($request, $session);
+        $payload = json_decode($response->getContent(), true);
+
+        if (!is_array($payload) || ($payload['status'] ?? '') !== 'success') {
+            return $response;
+        }
+
+        $identity->refresh();
+        $to = $identity->conversation_id ? Conversation::find($identity->conversation_id) : null;
+
+        if ($to && (int) $to->id !== (int) $from->id) {
+            $this->continuationLine($to, Presence::ACTION_CONTINUED_FROM, $from);
+            $this->continuationLine($from, Presence::ACTION_CONTINUED_IN, $to);
+        }
+
+        // They had the old one open and wrote under it, so they have read it.
+        $link->sawUpTo(PHP_INT_MAX);
+
+        \Log::info(self::LOG_PREFIX.': history reply moved to another conversation', [
+            'from'     => $from->id,
+            'to'       => $to ? $to->id : null,
+            'goes'     => $goes,
+            'provider' => $identity->provider,
+        ]);
+
+        return response()->json([
+            'status'          => 'success',
+            'chat'            => ['token' => $payload['token'] ?? '', 'since' => 0],
+            'id'              => $payload['id'] ?? 0,
+            'moved'           => $goes,
+            'conversation_id' => $to ? $to->id : 0,
+        ]);
+    }
+
+    /**
+     * A line in `$conversation` naming `$other` by its number, in the
+     * customer's name: they wrote the message that made it.
+     */
+    protected function continuationLine(Conversation $conversation, $action, Conversation $other)
+    {
+        Thread::create($conversation, Thread::TYPE_LINEITEM, '', [
+            'user_id'                => $conversation->user_id,
+            'action_type'            => $action,
+            'source_via'             => Thread::PERSON_CUSTOMER,
+            'source_type'            => Thread::SOURCE_TYPE_WEB,
+            'customer_id'            => $conversation->customer_id,
+            'created_by_customer_id' => $conversation->customer_id,
+            'meta'                   => [Presence::META_REF => (int) $other->number],
         ]);
     }
 

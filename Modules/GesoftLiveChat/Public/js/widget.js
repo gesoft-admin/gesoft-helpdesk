@@ -100,6 +100,8 @@
             stPending: 'Așteaptă răspunsul dvs.',
             stClosed: 'Rezolvat',
             reopenNote: 'Conversația a fost redeschisă.',
+            movedCurrent: 'Aveți deja o conversație deschisă, așa că mesajul a fost adăugat în ea.',
+            movedNew: 'Conversația aceea a fost închisă de mai mult timp, așa că am început una nouă pentru mesajul dvs.',
             errHistory: 'Nu am putut încărca conversațiile.',
             sourceTitle: 'Codul sursă al acestui helpdesk (AGPL-3.0)',
             errNetwork: 'Nu am putut trimite. Verificați conexiunea.',
@@ -157,6 +159,8 @@
             stPending: 'Waiting for your reply',
             stClosed: 'Resolved',
             reopenNote: 'This conversation has been reopened.',
+            movedCurrent: 'You already have an open conversation, so the message was added to it.',
+            movedNew: 'That conversation was closed some time ago, so we started a new one for your message.',
             errHistory: 'The conversations could not be loaded.',
             sourceTitle: 'The source code of this helpdesk (AGPL-3.0)',
             errNetwork: 'Could not send. Please check your connection.',
@@ -1589,6 +1593,21 @@
                     if (res.chat && res.chat.token) {
                         remember(res.chat.token);
                         since = 0;
+                    }
+
+                    // Not into the conversation on screen but into another
+                    // one -- the chat already open, or a new one. The screen
+                    // starts again on that one, which the poll fills from the
+                    // beginning, this message included; the line says why the
+                    // conversation changed under them.
+                    if (res.moved) {
+                        fresh();
+                        if (res.conversation_id) { panel.setAttribute('data-conversation', String(res.conversation_id)); }
+                        note(res.moved === 'new' ? T.movedNew : T.movedCurrent);
+                        active();
+                        startPolling();
+                        pollNow();
+                        return;
                     }
 
                     markSent(row, res.id || 0);

@@ -22,6 +22,16 @@ final class Presence
     const ACTION_LEFT     = 101;
     const ACTION_RETURNED = 102;
     const ACTION_BLOCKED  = 103;
+    // A message from the history that went to another conversation: one line
+    // where it landed, one where it was written. The other conversation's
+    // number is in the line's meta.
+    const ACTION_CONTINUED_FROM = 104;
+    const ACTION_CONTINUED_IN   = 105;
+    // An agent ended the chat with the button, rather than the status menu.
+    const ACTION_AGENT_ENDED    = 106;
+
+    /** The meta key holding the other conversation's number on those lines. */
+    const META_REF = 'gesoftlivechat_ref';
 
     /** Languages the bubble and its automatic messages are written in. */
     const LANGS = ['ro', 'en'];

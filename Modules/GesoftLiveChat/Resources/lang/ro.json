@@ -52,5 +52,9 @@
     "Unblock": "Deblochează",
     "Web Chat": "Chat web",
     "Website visitor": "Vizitator site",
-    "You are sending messages too quickly. Please wait a few seconds.": "Trimiteți mesaje prea des. Așteptați câteva secunde."
+    "You are sending messages too quickly. Please wait a few seconds.": "Trimiteți mesaje prea des. Așteptați câteva secunde.",
+    "End chat": "Încheie chatul",
+    "End this chat? The customer is told it has ended.": "Încheiați acest chat? Clientului i se va spune că s-a încheiat.",
+    ":person wrote this from their history, under conversation #:number": ":person a scris acest mesaj din istoricul său, sub conversația #:number",
+    ":person replied to this from their history; the message is in conversation #:number": ":person a răspuns aici din istoricul său; mesajul este în conversația #:number"
 }

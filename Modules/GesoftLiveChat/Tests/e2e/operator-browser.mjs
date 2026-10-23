@@ -508,6 +508,29 @@ try {
   sql(`delete from gesoft_live_chat_blocks where value = '${blockedEmail}' or reason = 'e2e ${RUN}'`);
 }
 
+// ------------------------------------------------------------ ending a chat
+// A customer's closing "thank you" is the last word, so the sweep will never
+// close the chat on its own. The agent ends it.
+const thanked = await visitor(`E2E de incheiat ${RUN}`, `Am o intrebare ${RUN}`);
+await say(thanked, `Multumesc, la revedere ${RUN}`);
+await open(`/conversation/${thanked.conv}?chat_mode=1`);
+check('an open chat has "End chat" in its toolbar', await ev(`!!document.querySelector('.conv-actions .gesoft-chat-end')`), true);
+await ev(`document.querySelector('.gesoft-chat-end').click(); true`);
+check('  which asks first', await waitFor(`!!document.querySelector('.modal.in .gesoft-chat-end-confirm')`, 5000), true);
+check('  and asking changes nothing', one(`select status from conversations where id=${thanked.conv}`), '1');
+await ev(`document.querySelector('.modal.in .gesoft-chat-end-confirm').click(); true`);
+await sleep(2500);
+await waitFor(`document.readyState === 'complete'`, 15000);
+check('confirming closes it', one(`select status from conversations where id=${thanked.conv}`), '3');
+check('  into the Closed folder', one(`select f.type from conversations c join folders f on f.id=c.folder_id where c.id=${thanked.conv}`), '60');
+check('  with one line saying who ended it, not two',
+  one(`select count(*) from threads where conversation_id=${thanked.conv} and type=4 and (action_type=106 or action_type=2)`), '1');
+const endLine = await ev(`[...document.querySelectorAll('.thread-type-lineitem .thread-title')].map(e => e.innerText.trim()).join(' | ')`);
+check('  which reads as the agent ending the chat',
+  /ended the chat|a încheiat chatul/.test(endLine) && !endLine.includes(`E2E de incheiat ${RUN}`), true);
+check("the visitor's bubble learns it is closed", (await pollOnce(thanked)).closed, true);
+check('a closed chat offers no "End chat"', await ev(`!document.querySelector('.gesoft-chat-end')`), true);
+
 check('no script errors from the module', moduleErrors, []);
 
 for (const conv of new Set(opened)) sql(`update conversations set status=3, closed_at=now() where id=${conv}`);

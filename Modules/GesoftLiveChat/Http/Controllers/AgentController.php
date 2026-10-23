@@ -130,6 +130,50 @@ class AgentController extends Controller
     }
 
     /**
+     * End a chat: close it, and say in the conversation who did.
+     *
+     * What the status menu does, under a name an agent looks for. The line is
+     * this module's rather than core's "marked as Closed", because "ended the
+     * chat" is what happened and is what the visitor's own button writes too;
+     * one line, not both.
+     *
+     * The visitor's bubble learns on its next poll that the conversation is
+     * closed and says so. Nothing else is taken from them: writing again from
+     * the history follows `History::replyGoes` like any closed conversation.
+     *
+     * `update`, not `viewCached`: this changes the conversation, and core asks
+     * the same of its own status menu.
+     */
+    public function end(Request $request, $conversation_id)
+    {
+        $conversation = Conversation::findOrFail($conversation_id);
+        $this->authorize('update', $conversation);
+
+        if (!$conversation->isChat()) {
+            return response()->json(['status' => 'error', 'msg' => __('Not a chat conversation.')], 400);
+        }
+
+        // Ended already, by somebody else or in another tab. Not an error: the
+        // agent wanted it ended, and it is.
+        if ($conversation->status == Conversation::STATUS_CLOSED) {
+            return response()->json(['status' => 'success']);
+        }
+
+        $conversation->changeStatus(Conversation::STATUS_CLOSED, auth()->user(), false);
+
+        Thread::create($conversation, Thread::TYPE_LINEITEM, '', [
+            'user_id'            => $conversation->user_id,
+            'created_by_user_id' => auth()->id(),
+            'action_type'        => Presence::ACTION_AGENT_ENDED,
+            'source_via'         => Thread::PERSON_USER,
+            'source_type'        => Thread::SOURCE_TYPE_WEB,
+            'customer_id'        => $conversation->customer_id,
+        ]);
+
+        return response()->json(['status' => 'success']);
+    }
+
+    /**
      * Block the visitor of a chat: their address, their email, or both.
      *
      * Live Helper Chat's ban, set from the conversation. The chat ends for the

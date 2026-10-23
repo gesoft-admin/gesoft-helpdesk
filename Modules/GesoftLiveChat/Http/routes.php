@@ -164,6 +164,12 @@ Route::group([
         'laroute' => true,
     ])->name('gesoftlivechat.agent.nudge');
 
+    // "End chat" from the conversation toolbar: closes it with a line saying
+    // who ended it.
+    Route::post('/gesoft-live-chat/agent/{conversation_id}/end', [
+        'uses' => 'AgentController@end',
+    ])->name('gesoftlivechat.agent.end');
+
     Route::post('/gesoft-live-chat/agent/{conversation_id}/typing', [
         'uses' => 'AgentController@typing',
     ])->name('gesoftlivechat.agent.typing');

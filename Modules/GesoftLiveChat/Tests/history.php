@@ -61,6 +61,24 @@ check('  which is the whole point of a history', History::canReply($PENDING, $PU
 check('spam cannot be replied into', History::canReply($SPAM, $PUBLISHED), false);
 check('a deleted conversation cannot', History::canReply($ACTIVE, $DELETED), false);
 
+// ------------------------------------------------- where a history reply goes
+
+$NOW = 1_800_000_000; $DAY = 86400;
+
+check('an open conversation is answered where it is', History::replyGoes($ACTIVE, null, $NOW, 7, false), 'here');
+check('  and so is a pending one', History::replyGoes($PENDING, null, $NOW, 7, false), 'here');
+check('  even while another chat is open: it opens nothing new', History::replyGoes($ACTIVE, null, $NOW, 7, true), 'here');
+check('  a custom status counts as its main one', History::replyGoes(21, null, $NOW, 7, true), 'here');
+check('closed yesterday, nothing else open: reopened', History::replyGoes($CLOSED, $NOW - $DAY, $NOW, 7, false), 'here');
+check('closed yesterday, another chat open: into that one', History::replyGoes($CLOSED, $NOW - $DAY, $NOW, 7, true), 'current');
+check('closed a month ago, another chat open: still into that one', History::replyGoes($CLOSED, $NOW - 30 * $DAY, $NOW, 7, true), 'current');
+check('closed a month ago, nothing open: a new conversation', History::replyGoes($CLOSED, $NOW - 30 * $DAY, $NOW, 7, false), 'new');
+check('closed exactly at the limit: still reopened', History::replyGoes($CLOSED, $NOW - 7 * $DAY, $NOW, 7, false), 'here');
+check('  one second past it: new', History::replyGoes($CLOSED, $NOW - 7 * $DAY - 1, $NOW, 7, false), 'new');
+check('zero days means any age is reopened', History::replyGoes($CLOSED, $NOW - 365 * $DAY, $NOW, 0, false), 'here');
+check('  but never past another open chat', History::replyGoes($CLOSED, $NOW - 365 * $DAY, $NOW, 0, true), 'current');
+check('no closing time known: reopened rather than guessed old', History::replyGoes($CLOSED, null, $NOW, 7, false), 'here');
+
 // ---------------------------------------------------------------- the words
 
 check('active reads as open', History::statusKey($ACTIVE), 'active');

@@ -192,6 +192,23 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
             ])->render();
         }, 30, 2);
 
+        // "End chat" in the conversation's toolbar, beside Reply and Note, on
+        // an open chat. The status menu closes a chat too, but nobody looks
+        // for "end this chat" under a menu that reads "Active".
+        \Eventy::addAction('conversation.action_buttons', function ($conversation, $mailbox) {
+            if (!$conversation || !$conversation->isChat()
+                || $conversation->state != \App\Conversation::STATE_PUBLISHED
+                || !in_array(\Modules\GesoftLiveChat\Support\History::mainStatus($conversation->status), [\Modules\GesoftLiveChat\Support\History::ACTIVE, \Modules\GesoftLiveChat\Support\History::PENDING], true)
+                || !auth()->user() || !auth()->user()->can('update', $conversation)
+            ) {
+                return;
+            }
+
+            echo \View::make('gesoftlivechat::partials/chat_end', [
+                'conversation' => $conversation,
+            ])->render();
+        }, 30, 2);
+
         // Two things at the head of a chat conversation's messages, on chat
         // conversations only.
         //
@@ -385,16 +402,36 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
                 return __(':person came back to the chat');
             case Presence::ACTION_BLOCKED:
                 return __(':person blocked this visitor');
+            case Presence::ACTION_AGENT_ENDED:
+                return __(':person ended the chat');
+            case Presence::ACTION_CONTINUED_FROM:
+                return __(':person wrote this from their history, under conversation #:number', ['number' => self::lineRef($thread)]);
+            case Presence::ACTION_CONTINUED_IN:
+                return __(':person replied to this from their history; the message is in conversation #:number', ['number' => self::lineRef($thread)]);
         }
 
         return null;
+    }
+
+    /** The other conversation's number on a continuation line, as digits only. */
+    protected static function lineRef($thread)
+    {
+        $meta = method_exists($thread, 'getMeta') ? $thread->getMeta(Presence::META_REF) : null;
+
+        return (string) (int) $meta;
     }
 
     /** A line that records something the visitor did, rather than an agent. */
     public static function isVisitorLine($thread)
     {
         return self::lineText($thread) !== null
-            && in_array((int) $thread->action_type, [Presence::ACTION_ENDED, Presence::ACTION_LEFT, Presence::ACTION_RETURNED], true);
+            && in_array((int) $thread->action_type, [
+                Presence::ACTION_ENDED,
+                Presence::ACTION_LEFT,
+                Presence::ACTION_RETURNED,
+                Presence::ACTION_CONTINUED_FROM,
+                Presence::ACTION_CONTINUED_IN,
+            ], true);
     }
 
     /**

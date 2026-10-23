@@ -345,6 +345,39 @@
             .fail(function () { link.data('busy', false); });
     });
 
+    // "End chat" from the toolbar. Asked first, in core's own dialog when it
+    // is there: it closes the conversation for the customer, and a stray click
+    // on an icon should not.
+    $(document).on('click', '.gesoft-chat-end', function (e) {
+        e.preventDefault();
+
+        var button = $(this), id = button.data('conversation-id');
+        if (!id || button.data('busy')) { return; }
+
+        function end() {
+            button.data('busy', true);
+            $.post(base() + '/gesoft-live-chat/agent/' + id + '/end', { _token: csrf() })
+                .done(function () { window.location.reload(); })
+                .fail(function () { button.data('busy', false); });
+        }
+
+        var question = String(button.data('confirm') || '');
+
+        if (typeof showModalConfirm !== 'function') {
+            if (window.confirm(question)) { end(); }
+            return;
+        }
+
+        showModalConfirm($('<div>').text(question).html(), 'gesoft-chat-end-confirm', {
+            on_show: function (modal) {
+                modal.children().find('.gesoft-chat-end-confirm:first').click(function () {
+                    modal.modal('hide');
+                    end();
+                });
+            }
+        }, $('<div>').text(button.attr('aria-label') || 'OK').html());
+    });
+
     // "Block visitor…": a small dialog, built here from labels the server
     // translated. Every label goes in with .text(), never as markup.
     $(document).on('click', '.gesoft-chat-block-open', function (e) {

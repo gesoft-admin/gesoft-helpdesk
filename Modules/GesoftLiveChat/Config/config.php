@@ -332,6 +332,14 @@ return [
     'app_session_ttl' => env('GESOFT_LIVE_CHAT_APP_SESSION_TTL', 43200),
 
     /**
+     * How many days after it was closed a conversation may still be reopened
+     * by writing into it from the history. Older than that, the message starts
+     * a new conversation with a line naming the old one. Zero reopens at any
+     * age. See `History::replyGoes`.
+     */
+    'reopen_days' => env('GESOFT_LIVE_CHAT_REOPEN_DAYS', 7),
+
+    /**
      * Requests a minute to the server-to-server bootstrap, from one address.
      *
      * Its own ceiling rather than the visitors' one, because every call

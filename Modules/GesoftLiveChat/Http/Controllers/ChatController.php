@@ -183,6 +183,36 @@ class ChatController extends Controller
     }
 
     /**
+     * The application half of `start`, for a message written into the history
+     * that is not to go where it was written: into the chat this person already
+     * has open, or else into a new one. `History::replyGoes` decides which;
+     * `startAsApp` already does exactly that, blocks and start limit included,
+     * so the history goes through it rather than keeping a second copy.
+     *
+     * Whatever token the request carries is ignored here, unlike in `start`:
+     * the panel sends the live chat's token with a history reply, and writing
+     * on it would bypass the very rule this is called to keep.
+     */
+    public function startForApp(Request $request, AppSession $app)
+    {
+        $lang = $this->lang($request);
+
+        $body = $this->body($request);
+        if ($body === null) {
+            return $this->fail($request, __('Please write a message first.', [], $lang), 400, 'empty');
+        }
+
+        $mailbox = $this->mailbox();
+        if (!$mailbox) {
+            \Log::error(self::LOG_PREFIX.': no mailbox configured to receive chats');
+
+            return $this->fail($request, __('Chat is not available right now.', [], $lang), 503, 'unavailable');
+        }
+
+        return $this->startAsApp($request, $app, $body, $lang, $mailbox);
+    }
+
+    /**
      * Open a chat for somebody an application has signed in.
      *
      * Everything that makes the public `start` careful is either already
@@ -369,8 +399,17 @@ class ChatController extends Controller
             return $this->fail($request, __('Chat is not available right now.', [], $lang), 503, 'unavailable');
         }
 
+        // Theirs, and so in their history, where the answer will be waiting
+        // as well as in their inbox. Linked rather than taken: it is an email
+        // conversation, and the chat this person is in, if any, stays the one
+        // they are in.
+        if ($app) {
+            AppConversation::link($identity, $result['conversation']->id);
+        }
+
         \Log::info(self::LOG_PREFIX.': message left while nobody was available', [
             'conversation_id' => $result['conversation']->id,
+            'provider'        => $app ? $identity->provider : null,
         ]);
 
         return $this->ok($request, ['left' => true]);

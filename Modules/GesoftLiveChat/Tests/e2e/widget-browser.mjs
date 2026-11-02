@@ -393,7 +393,7 @@ check('"Yes" removes the token from the tab', await token(a), null);
 check('  tells the visitor', await a.ev(`${R}.querySelector('.log').innerText.includes('Ați încheiat conversația')`), true);
 check('  hides the End button', await a.ev(`${R}.querySelector('.end').hidden`), true);
 check('  writes one line for the operator', one(`select count(*) from threads where conversation_id=${convA} and type=4 and action_type=100`), '1');
-check('  and leaves the conversation open', ['1', '2'].includes(one(`select status from conversations where id=${convA}`)), true);
+check('  and closes the conversation', one(`select status from conversations where id=${convA}`), '3');
 const after = await (await fetch(`${BASE}/gesoft-live-chat/poll?token=${tokenA}&since=0`)).json();
 check('the ended token opens nothing', after.closed, true);
 await a.ev(`(() => { const t = ${R}.querySelector('.form textarea'); t.value = 'Inca ceva ${RUN}'; ${R}.querySelector('.form').dispatchEvent(new Event('submit', { cancelable: true })); return true; })()`);

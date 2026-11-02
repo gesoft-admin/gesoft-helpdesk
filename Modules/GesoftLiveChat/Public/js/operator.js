@@ -46,6 +46,8 @@
             pushList: 'Open the chat list.',
             pushWaiting: 'A visitor is waiting for an answer.',
             activeChats: 'Active chats',
+            endedBy: '{name} ended the chat',
+            pushEnded: 'The conversation is closed.',
             siteOff: 'Chat on the site: off',
             siteOn: 'Chat on the site: ON',
             siteOffTitle: 'The site shows no chat. Click to show it to visitors for as long as you stay connected.',
@@ -71,6 +73,8 @@
             pushList: 'Deschide lista de chaturi.',
             pushWaiting: 'Un vizitator așteaptă un răspuns.',
             activeChats: 'Chaturi active',
+            endedBy: '{name} a încheiat chatul',
+            pushEnded: 'Conversația a fost închisă.',
             siteOff: 'Chat pe site: oprit',
             siteOn: 'Chat pe site: ACTIV',
             siteOffTitle: 'Site-ul nu afișează chatul. Apasă ca să îl afișezi vizitatorilor cât timp rămâi conectat.',
@@ -255,6 +259,42 @@
             ? T.several.replace('{n}', res.new_conversations)
             : (res.latest_name ? T.newFrom.replace('{name}', res.latest_name) : T.newChat);
 
+        notify(title, target, several ? T.pushList : T.pushWaiting);
+    }
+
+    // A customer ended a chat. Remembered across pages and tabs, unlike the
+    // message alert: every page starts fresh and an agent walking between pages
+    // would miss it, and two open tabs would both announce it. Announced even
+    // on that chat's own page, which does not redraw by itself.
+    var ENDED_SEEN = 'gesoft-chat-ended-seen';
+    var endedSeen = null;
+
+    function readEndedSeen() {
+        try {
+            var v = window.localStorage.getItem(ENDED_SEEN);
+            if (v !== null) { return parseInt(v, 10) || 0; }
+        } catch (e) {}
+        return endedSeen;
+    }
+
+    function writeEndedSeen(id) {
+        endedSeen = id;
+        try { window.localStorage.setItem(ENDED_SEEN, String(id)); } catch (e) {}
+    }
+
+    function announceEnded(ended) {
+        var id = ended ? ended.id : 0;
+        var seen = readEndedSeen();
+
+        // The first answer in this browser only says what is already past.
+        if (seen === null) { writeEndedSeen(id); return; }
+        if (id <= seen) { return; }
+
+        writeEndedSeen(id);
+        notify(ended.name ? T.endedBy.replace('{name}', ended.name) : T.ended, ended.url, T.pushEnded);
+    }
+
+    function notify(title, target, pushBody) {
         // Core's own cue, so chat sounds like the rest of the application
         // rather than like a second product bolted on.
         if (typeof playAudioNotification === 'function') {
@@ -283,7 +323,7 @@
 
         try {
             Push.create(title, {
-                body: several ? T.pushList : T.pushWaiting,
+                body: pushBody,
                 timeout: 8000,
                 onClick: function () {
                     window.focus();
@@ -339,6 +379,7 @@
             paint(res.count);
             paintHeader(res.count, res.mailbox_id);
             paintSiteBubble(res.site_bubble);
+            announceEnded(res.ended);
 
             presence = res.presence || {};
             paintPresence();

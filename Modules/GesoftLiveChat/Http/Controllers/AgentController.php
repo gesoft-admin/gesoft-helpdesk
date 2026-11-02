@@ -393,6 +393,44 @@ class AgentController extends Controller
     }
 
     /**
+     * The newest chat a customer ended and this agent may see, for the alert.
+     *
+     * Not from the open chats the rest of the answer counts: ending closes the
+     * conversation. Sessions first, because they are few and `threads` has no
+     * index on the action; ten minutes covers the slowest background tab.
+     */
+    protected function latestEnded($mailbox_ids, $user)
+    {
+        $recent = ChatSession::where('ended_at', '>=', now()->subMinutes(10))->pluck('conversation_id');
+        if ($recent->isEmpty()) {
+            return null;
+        }
+
+        $visible = Conversation::whereIn('id', $recent)
+            ->where('type', Conversation::TYPE_CHAT)
+            ->whereIn('mailbox_id', $mailbox_ids);
+        if ($user->canSeeOnlyAssignedConversations()) {
+            $visible->where('user_id', $user->id);
+        }
+
+        $thread = \App\Thread::whereIn('conversation_id', $visible->pluck('id'))
+            ->where('type', \App\Thread::TYPE_LINEITEM)
+            ->where('action_type', Presence::ACTION_ENDED)
+            ->orderBy('id', 'desc')
+            ->first();
+        $conversation = $thread ? Conversation::find($thread->conversation_id) : null;
+        if (!$conversation) {
+            return null;
+        }
+
+        return [
+            'id'   => $thread->id,
+            'name' => $conversation->customer ? $conversation->customer->getFullName(true) : '',
+            'url'  => $conversation->url(null, null, ['chat_mode' => 1]),
+        ];
+    }
+
+    /**
      * Active chats the signed-in agent is allowed to see.
      *
      * Scoped by mailbox permission, and by assignment where the user may only
@@ -507,6 +545,7 @@ class AgentController extends Controller
             // browser.
             'mailbox_id'  => $mailbox_id,
             'site_bubble' => $this->siteBubbleState($this->chatMailbox(), $user),
+            'ended'       => $this->latestEnded($mailbox_ids, $user),
         ]);
     }
 }

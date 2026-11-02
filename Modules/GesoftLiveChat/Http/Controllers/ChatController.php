@@ -605,8 +605,13 @@ class ChatController extends Controller
             $session->ended_at = now();
             $session->save();
 
+            // The customer said they are done, so it closes here rather than
+            // waiting for an agent. Unlike the sweep, this is their own word,
+            // whoever spoke last; the header alert tells the agents, and writing
+            // again starts a new conversation.
             if ($session->isConversationOpen()) {
                 $session->note(Presence::ACTION_ENDED);
+                $session->conversation->changeStatus(Conversation::STATUS_CLOSED, null, false);
             }
         }
 

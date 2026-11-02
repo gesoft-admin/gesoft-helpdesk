@@ -170,17 +170,23 @@ check('Manage has a link to the blocked visitors page',
 // --------------------------------------------------- presence in the chat list
 const here = await visitor(`E2E prezent ${RUN}`, `Sunt aici ${RUN}`);
 await pollOnce(here);
+
+// A customer ending a chat tells an agent on another page, once.
+await open('/');
+await sleep(2500);
 const ended = await visitor(`E2E plecat ${RUN}`, `Plec imediat ${RUN}`);
 await endChat(ended);
+check('a customer ending a chat alerts an agent on another page',
+  await waitFor(`[...document.querySelectorAll('.gesoft-chat-alert')].some(a => a.innerText.includes(${JSON.stringify(`E2E plecat ${RUN}`)}) && /ended the chat|a încheiat chatul/.test(a.innerText))`, 20000), true);
+await open('/');
+await sleep(12000);
+check('  and only once, not again on the next page',
+  await ev(`[...document.querySelectorAll('.gesoft-chat-alert')].some(a => /ended the chat|a încheiat chatul/.test(a.innerText))`), false);
+check('ending it closes the conversation', one(`select status from conversations where id=${ended.conv}`), '3');
 
 await open(`/conversation/${ended.conv}?chat_mode=1`);
 check('a visitor who is here gets the "here" mark in the chat list',
   await waitFor(`!!document.querySelector('.chats li.chat-item[data-chat_id="${here.conv}"].gesoft-presence-here')`), true);
-check('a visitor who ended the chat gets the "ended" mark',
-  await waitFor(`!!document.querySelector('.chats li.chat-item[data-chat_id="${ended.conv}"].gesoft-presence-ended')`), true);
-const hoverTitle = await ev(`(document.querySelector('.chats li.chat-item[data-chat_id="${ended.conv}"] .folder-name') || {}).title || ''`);
-check('  and the mark is explained in words on hover, in the agent\'s language',
-  ['The customer ended the chat', 'Clientul a încheiat chatul'].includes(hoverTitle), true);
 
 const lineText = await ev(`[...document.querySelectorAll('.thread-type-lineitem .thread-title')].map(e => e.innerText.trim()).join(' | ')`);
 check('the conversation shows the "ended the chat" line', /ended the chat|a încheiat chatul/.test(lineText), true);

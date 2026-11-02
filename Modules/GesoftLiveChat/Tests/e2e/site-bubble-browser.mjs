@@ -1,6 +1,6 @@
 // The bubble on a public site, switched from the helpdesk's header.
 //
-//   GLC_SITE_BASE=http://192.168.99.110/~emil/crm/frontend/web  (from .env.testvm)
+//   GLC_SITE_BASE=<the site checkout, from .env.testvm>
 //
 // Needs that site's helpdeskUrl pointing at this instance and its origin in the
 // instance's GESOFT_LIVE_CHAT_ORIGINS. Test instance only: it rewrites agents'

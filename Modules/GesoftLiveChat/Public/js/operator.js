@@ -46,6 +46,11 @@
             pushList: 'Open the chat list.',
             pushWaiting: 'A visitor is waiting for an answer.',
             activeChats: 'Active chats',
+            siteOff: 'Chat on the site: off',
+            siteOn: 'Chat on the site: ON',
+            siteOffTitle: 'The site shows no chat. Click to show it to visitors for as long as you stay connected.',
+            siteOnTitle: 'Visitors to the site can open a chat. Click to take it off the site.',
+            siteOnBy: 'Switched on by {name}. Click to take it off the site.',
             here: 'The customer is in the chat',
             left: 'The customer left the chat',
             ended: 'The customer ended the chat',
@@ -66,6 +71,11 @@
             pushList: 'Deschide lista de chaturi.',
             pushWaiting: 'Un vizitator așteaptă un răspuns.',
             activeChats: 'Chaturi active',
+            siteOff: 'Chat pe site: oprit',
+            siteOn: 'Chat pe site: ACTIV',
+            siteOffTitle: 'Site-ul nu afișează chatul. Apasă ca să îl afișezi vizitatorilor cât timp rămâi conectat.',
+            siteOnTitle: 'Vizitatorii site-ului pot deschide chatul. Apasă ca să îl scoți de pe site.',
+            siteOnBy: 'Pornit de {name}. Apasă ca să îl scoți de pe site.',
             here: 'Clientul este în chat',
             left: 'Clientul a părăsit chatul',
             ended: 'Clientul a încheiat chatul',
@@ -151,6 +161,54 @@
             item.find('a').attr('href', base() + '/mailbox/' + mailbox_id + '/chats');
         }
     }
+
+    // The switch for the bubble on the public site, beside the bell so that it
+    // says what visitors are being offered on every page. The server's answer
+    // is the only thing that paints it: a press does not assume it worked.
+    function paintSiteBubble(state) {
+        var bar = $('ul.navbar-nav.navbar-right').first();
+        if (!bar.length) { return; }
+
+        var item = bar.find('.gesoft-site-bubble');
+
+        if (!state) {
+            item.remove();
+            return;
+        }
+
+        if (!item.length) {
+            item = $(
+                '<li class="gesoft-site-bubble">' +
+                '  <a href="#" role="button"><i class="glyphicon glyphicon-globe"></i> <span></span></a>' +
+                '</li>'
+            );
+            bar.prepend(item);
+        }
+
+        item.toggleClass('is-on', !!state.on);
+        item.data('on', !!state.on);
+
+        var title = T.siteOffTitle;
+        if (state.on) {
+            title = state.mine || !state.by ? T.siteOnTitle : T.siteOnBy.replace('{name}', state.by);
+        }
+
+        item.find('a').attr('title', title).attr('aria-pressed', state.on ? 'true' : 'false');
+        item.find('span').text(state.on ? T.siteOn : T.siteOff);
+    }
+
+    $(document).on('click', '.gesoft-site-bubble a', function (e) {
+        e.preventDefault();
+
+        var item = $(this).closest('.gesoft-site-bubble');
+        if (item.data('busy')) { return; }
+        item.data('busy', true);
+
+        $.post(base() + '/gesoft-live-chat/agent/site-bubble', { _token: csrf(), on: item.data('on') ? 0 : 1 })
+            .done(function (res) { if (res && res.status === 'success') { paintSiteBubble(res.site_bubble); } })
+            .fail(function () { window.alert(T.failed); })
+            .always(function () { item.data('busy', false); });
+    });
 
     function paint(count) {
         var link = chatsLink();
@@ -280,6 +338,7 @@
 
             paint(res.count);
             paintHeader(res.count, res.mailbox_id);
+            paintSiteBubble(res.site_bubble);
 
             presence = res.presence || {};
             paintPresence();

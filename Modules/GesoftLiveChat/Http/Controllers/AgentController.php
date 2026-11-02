@@ -333,6 +333,66 @@ class AgentController extends Controller
     }
 
     /**
+     * The header's "chat on the site" button.
+     *
+     * Only an agent who could answer what it invites: somebody without access
+     * to the chat mailbox opening the bubble would leave visitors talking to
+     * nobody. Session and CSRF as for every agent route.
+     */
+    public function siteBubble(Request $request)
+    {
+        $mailbox = $this->chatMailbox();
+        $user = auth()->user();
+
+        if (!$this->siteBubbleOffered() || !$mailbox || !$mailbox->userHasAccess($user->id, $user)) {
+            abort(403);
+        }
+
+        if ($request->input('on')) {
+            AgentPresence::openSiteBubble($user->id);
+        } else {
+            AgentPresence::closeSiteBubble();
+        }
+
+        return response()->json(['status' => 'success', 'site_bubble' => $this->siteBubbleState($mailbox, $user)]);
+    }
+
+    /** The mailbox chats arrive in; the same rule `ChatController` follows. */
+    protected function chatMailbox()
+    {
+        $id = config('gesoftlivechat.mailbox_id');
+
+        return $id ? Mailbox::find($id) : Mailbox::orderBy('id')->first();
+    }
+
+    /** With no site named in `origins`, the button would switch nothing. */
+    protected function siteBubbleOffered()
+    {
+        return trim((string) config('gesoftlivechat.origins')) !== '';
+    }
+
+    /**
+     * What the button shows. Null hides it: no site to show the bubble on, or
+     * an agent who may not press it.
+     */
+    protected function siteBubbleState($mailbox, $user)
+    {
+        if (!$this->siteBubbleOffered() || !$mailbox || !$mailbox->userHasAccess($user->id, $user)) {
+            return null;
+        }
+
+        $holder = AgentPresence::siteBubbleHolder($mailbox);
+        $holder_user = $holder ? \App\User::find($holder->user_id) : null;
+
+        return [
+            'on'    => (bool) $holder,
+            'by'    => $holder_user ? $holder_user->getFullName() : '',
+            'mine'  => $holder && (int) $holder->user_id === (int) $user->id,
+            'until' => $holder ? $holder->site_bubble_until->timestamp : 0,
+        ];
+    }
+
+    /**
      * Active chats the signed-in agent is allowed to see.
      *
      * Scoped by mailbox permission, and by assignment where the user may only
@@ -446,6 +506,7 @@ class AgentController extends Controller
             // answer travels with the count rather than being guessed in the
             // browser.
             'mailbox_id'  => $mailbox_id,
+            'site_bubble' => $this->siteBubbleState($this->chatMailbox(), $user),
         ]);
     }
 }

@@ -165,6 +165,11 @@ Route::group([
         'laroute' => true,
     ])->name('gesoftlivechat.agent.chats');
 
+    // The button in the header: offer the bubble on the public site, or stop.
+    Route::post('/gesoft-live-chat/agent/site-bubble', [
+        'uses' => 'AgentController@siteBubble',
+    ])->name('gesoftlivechat.agent.site_bubble');
+
     Route::post('/gesoft-live-chat/agent/{conversation_id}/nudge', [
         'uses'    => 'AgentController@nudge',
         'laroute' => true,

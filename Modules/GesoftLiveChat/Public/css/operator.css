@@ -61,6 +61,24 @@
     position: relative;
 }
 
+.gesoft-site-bubble > a > span {
+    font-size: 12px;
+}
+
+.navbar-nav > .gesoft-site-bubble.is-on > a,
+.navbar-nav > .gesoft-site-bubble.is-on > a:hover,
+.navbar-nav > .gesoft-site-bubble.is-on > a:focus {
+    background: #157347;
+    color: #fff !important;
+    font-weight: 600;
+}
+
+@media (max-width: 991px) {
+    .navbar-nav > .gesoft-site-bubble > a > span {
+        display: none;
+    }
+}
+
 .gesoft-chat-header .gesoft-chat-header-count {
     position: absolute;
     top: 6px;

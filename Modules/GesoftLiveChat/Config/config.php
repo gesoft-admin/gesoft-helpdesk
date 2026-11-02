@@ -178,6 +178,16 @@ return [
     'operator_timeout' => env('GESOFT_LIVE_CHAT_OPERATOR_TIMEOUT', 120),
 
     /**
+     * The longest one press of the helpdesk's "chat on the site" button lasts,
+     * in hours. The bubble leaves the site sooner if the agent who pressed it
+     * signs out or stops counting as present (`operator_timeout`); this is for
+     * the agent who leaves a tab open overnight.
+     *
+     * The button only exists where `origins` names a site to show the bubble.
+     */
+    'site_bubble_hours' => env('GESOFT_LIVE_CHAT_SITE_BUBBLE_HOURS', 8),
+
+    /**
      * After how many seconds without an answer the bubble tells the visitor
      * somebody will be with them shortly. Zero never does. Shown in the bubble
      * only, never written into the conversation.

@@ -34,6 +34,11 @@ executable content is provably the same.
 
 ### `Modules/GesoftLiveChat`
 
+A header button lets an agent offer the bubble on a public site named in
+`GESOFT_LIVE_CHAT_ORIGINS`, only for as long as that agent stays connected; the
+site's loader reads `site` from the status endpoint. The bubble offers its source
+wherever `data-source` is set, not just on `/chat`.
+
 Registers a web chat channel, which is all it takes to switch on FreeScout's
 own live chat: the Chats folder, Chat Mode, the chat list, the realtime refresh
 and audio cue, and the rule that a chat conversation is never answered by

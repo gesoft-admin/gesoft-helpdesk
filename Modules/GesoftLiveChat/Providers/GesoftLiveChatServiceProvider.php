@@ -293,6 +293,15 @@ class GesoftLiveChatServiceProvider extends ServiceProvider
         // link and only subscribes to the chat realtime channel when the chat
         // list is already on screen, so an agent reading a ticket cannot tell
         // that somebody is waiting. These two files add that and patch nothing.
+        // Signed out on purpose: the bubble this agent offered leaves the site
+        // now, not when their heartbeat runs out, and is not offered again by
+        // their next sign-in.
+        \Event::listen(\Illuminate\Auth\Events\Logout::class, function ($event) {
+            if ($event->user) {
+                \Modules\GesoftLiveChat\Entities\AgentPresence::withdrawSiteBubble($event->user->id);
+            }
+        });
+
         \Eventy::addFilter('javascripts', function ($javascripts) {
             $javascripts[] = \Module::getPublicPath(GESOFT_LIVE_CHAT_MODULE).'/js/operator.js';
 

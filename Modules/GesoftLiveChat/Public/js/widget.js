@@ -542,7 +542,7 @@
         // nothing to it. "Open Source" reads the same in both languages, so it
         // is the one label here that is not translated; what it means is in the
         // title, which words() sets.
-        (PAGE && SOURCE ? '  <div class="src"><a href="' + SOURCE + '" target="_blank" rel="noopener noreferrer">Open Source</a></div>' : ''),
+        (SOURCE ? '  <div class="src"><a href="' + SOURCE + '" target="_blank" rel="noopener noreferrer">Open Source</a></div>' : ''),
         '</section>',
         '</div>'
     ].join('');

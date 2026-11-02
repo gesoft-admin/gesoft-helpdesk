@@ -73,10 +73,19 @@ class ChatController extends Controller
      * Whether anybody is available to chat, so the bubble can offer a chat or
      * the message form. Live Helper Chat's widget asks the same before it
      * decides what to show.
+     *
+     * `site` is the other question, asked by the public site's loader before
+     * there is any bubble: has an agent offered one? See
+     * `AgentPresence::siteBubbleOpen()`.
      */
     public function status(Request $request)
     {
-        return $this->ok($request, ['online' => AgentPresence::anyoneAvailable($this->mailbox())]);
+        $mailbox = $this->mailbox();
+
+        return $this->ok($request, [
+            'online' => AgentPresence::anyoneAvailable($mailbox),
+            'site'   => AgentPresence::siteBubbleOpen($mailbox),
+        ]);
     }
 
     /**

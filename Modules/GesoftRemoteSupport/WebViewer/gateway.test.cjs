@@ -16,7 +16,7 @@ const punch = (extra = {}) => encode('punch_hole_request', {
 const relay = (extra = {}) => encode('request_relay', {
     id: '12345678', licence_key: KEY, uuid: 'authorized-uuid', conn_type: 0, ...extra,
 });
-async function fixture(t) {
+async function fixture(t, options = {}) {
     const state = { revoked: false, fail: false, idMessages: [], relayMessages: [], audit: [] };
     const auth = http.createServer((req, res) => {
         if (state.fail) { res.writeHead(503); return res.end(); }
@@ -28,14 +28,19 @@ async function fixture(t) {
             expires: Math.floor(Date.now() / 1000) + 60 }));
     });
     const ids = new WebSocketServer({ port: 0, host: '127.0.0.1' });
-    const relays = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+    // A relay that accepts TCP but never answers the upgrade keeps the
+    // gateway's upstream in CONNECTING, so client frames queue.
+    const relays = options.stallRelay
+        ? Object.assign(require('node:net').createServer((socket) => { stalled.push(socket); }).listen(0, '127.0.0.1'), { clients: new Set() })
+        : new WebSocketServer({ port: 0, host: '127.0.0.1' });
+    const stalled = [];
     await Promise.all([once(ids, 'listening'), once(relays, 'listening'),
         new Promise((r) => auth.listen(0, '127.0.0.1', r))]);
     ids.on('connection', (ws) => ws.on('message', (bytes) => {
         state.idMessages.push(bytes);
         ws.send(encode('relay_response', { uuid: 'authorized-uuid', relay_server: 'not-trusted.example:21117' }));
     }));
-    relays.on('connection', (ws) => ws.on('message', (bytes) => {
+    if (!options.stallRelay) relays.on('connection', (ws) => ws.on('message', (bytes) => {
         state.relayMessages.push(bytes);
         if (state.relayMessages.length > 1) ws.send(bytes);
     }));
@@ -64,6 +69,7 @@ async function fixture(t) {
     t.after(async () => {
         for (const ws of sockets) { ws.on('error', () => {}); ws.terminate(); }
         await gateway.close();
+        for (const socket of stalled) socket.destroy();
         for (const wss of [ids, relays]) {
             for (const ws of wss.clients) ws.terminate();
             await new Promise((r) => wss.close(r));
@@ -96,6 +102,9 @@ for (const [name, data] of [
     ['a WebRTC bypass', () => punch({ webrtc_sdp_offer: 'webrtc://untrusted' })],
     ['registration instead of connection', () => encode('register_peer', { id: '12345678' })],
     ['malformed protobuf', () => Buffer.from([0xff])],
+    ['a valid request with a trailing zero tag', () => Buffer.concat([punch(), Buffer.from([0, 255])])],
+    ['a valid request with a trailing end-group tag', () => Buffer.concat([punch(), Buffer.from([4, 255])])],
+    ['a valid request with an unknown field', () => Buffer.concat([punch(), Buffer.from([0xf8, 0x3f, 1])])],
 ]) test(`OWASP: refuses ${name} before forwarding`, async (t) => {
     const f = await fixture(t); const ws = await f.open('id');
     const closed = once(ws, 'close'); ws.send(data()); await closed;
@@ -107,6 +116,22 @@ test('OWASP: relay UUID cannot be exchanged for another session', async (t) => {
     const ws = await f.open('relay'); const closed = once(ws, 'close');
     ws.send(relay({ uuid: 'other-uuid' })); await closed;
     assert.equal(f.relayMessages.length, 0);
+});
+test('OWASP: relay request with trailing data is refused', async (t) => {
+    const f = await fixture(t); const id = await f.open('id');
+    const response = once(id, 'message'); id.send(punch()); await response;
+    const ws = await f.open('relay'); const closed = once(ws, 'close');
+    ws.send(Buffer.concat([relay(), Buffer.from([0, 255])])); await closed;
+    assert.equal(f.relayMessages.length, 0);
+});
+test('OWASP: pre-open queue is bounded by message count, not only bytes', async (t) => {
+    const f = await fixture(t, { stallRelay: true }); const id = await f.open('id');
+    const response = once(id, 'message'); id.send(punch()); await response;
+    const ws = await f.open('relay'); const closed = once(ws, 'close');
+    ws.send(relay());
+    for (let i = 0; i < 300; i++) ws.send(Buffer.alloc(0));
+    await closed;
+    assert.ok(f.audit.some((e) => e.reason === 'queue limit'));
 });
 test('authorized relay carries opaque payload without crypto termination', async (t) => {
     const f = await fixture(t); const { data } = await f.pair();

@@ -7,6 +7,19 @@ import { RendezvousMessage, PunchHoleRequest, RequestRelay, ConnType, NatType } 
 export { WebSocket, WebSocketServer, RendezvousMessage };
 const PATH = /^\/gesoft-viewer\/ws\/([a-f0-9]{48})\/(id|relay)$/;
 const LIMIT = 8 * 1024 * 1024;
+const QUEUE_BYTES = 1024 * 1024;
+const QUEUE_MESSAGES = 256;
+
+// Policy checks only trust a message that re-encodes to exactly the bytes
+// received: trailing data, stray terminators or unknown fields are refused.
+function strictRendezvous(input) {
+  const message = RendezvousMessage.decode(input);
+  const canonical = RendezvousMessage.encode(message).finish();
+  if (canonical.length !== input.length || Buffer.compare(Buffer.from(canonical), input) !== 0) {
+    throw new Error('non-canonical message');
+  }
+  return message.union;
+}
 
 export function createGateway(options) {
   const pairs = new Map();
@@ -132,7 +145,7 @@ export function createGateway(options) {
       try {
         if (kind === 'id') {
           if (!channel.first || input.length > 65536) throw new Error('signal');
-          const msg = RendezvousMessage.decode(input).union;
+          const msg = strictRendezvous(input);
           if (msg?.$case !== 'punch_hole_request') throw new Error('signal type');
           const p = msg.punch_hole_request;
           if (p.id !== pair.auth.peer || p.conn_type !== ConnType.DEFAULT_CONN ||
@@ -144,7 +157,7 @@ export function createGateway(options) {
           channel.first = false;
         } else if (channel.first) {
           if (input.length > 65536) throw new Error('relay size');
-          const msg = RendezvousMessage.decode(input).union;
+          const msg = strictRendezvous(input);
           if (msg?.$case !== 'request_relay') throw new Error('relay type');
           const p = msg.request_relay;
           if (p.id !== pair.auth.peer || p.uuid !== pair.uuid ||
@@ -158,7 +171,7 @@ export function createGateway(options) {
       } catch { return end(pair, 'protocol policy refused'); }
       if (upstream.readyState === WebSocket.CONNECTING) {
         channel.bytes += bytes.length;
-        if (channel.bytes > 1024 * 1024) return end(pair, 'queue limit');
+        if (channel.bytes > QUEUE_BYTES || channel.queue.length >= QUEUE_MESSAGES) return end(pair, 'queue limit');
         channel.queue.push(bytes);
       } else send(upstream, bytes);
     });

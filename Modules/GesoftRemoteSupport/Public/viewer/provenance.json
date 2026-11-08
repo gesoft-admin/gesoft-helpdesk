@@ -3,8 +3,29 @@
   "commit": "6fb03478b009f80524b286c26eeaa67297bada7c",
   "subdirectory": "webclient",
   "license": "AGPL-3.0-only",
-  "modified_upstream_files": [],
+  "modified_upstream_files": [
+    "src/core/session.ts",
+    "src/input/clipboard-cursor.ts",
+    "src/media/audio.ts",
+    "src/media/video.ts",
+    "src/ui/app.ts",
+    "src/worker/session.worker.ts"
+  ],
   "additional_files": {
     "logo.png": "public/rdclient/logo.png"
+  },
+  "modifications": {
+    "by": "Gesoft",
+    "date": "2026-11-08",
+    "source": "WebViewer/gesoft-patches.mjs",
+    "summary": [
+      "src/input/clipboard-cursor.ts: #2 unbounded zstd output",
+      "src/input/clipboard-cursor.ts: #2 cursor dimensions drive allocations",
+      "src/media/video.ts: #3 key frames bypass the decode queue bound",
+      "src/media/audio.ts: #3 audio decode queue unbounded",
+      "src/ui/app.ts: #3 chat history unbounded",
+      "src/worker/session.worker.ts: #3 cursor conversions without a concurrency bound",
+      "src/core/session.ts: #5 invalid signed box key escapes handshake error handling"
+    ]
   }
 }

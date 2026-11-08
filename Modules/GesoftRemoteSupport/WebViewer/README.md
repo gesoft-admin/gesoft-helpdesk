@@ -2,7 +2,13 @@
 
 The vendored `upstream/` tree is CortenDesk's standalone webclient at the
 commit recorded in `upstream/PROVENANCE.json`, with its AGPL license and NOTICE.
-It is not the CortenDesk server/console. No upstream source file is modified.
+It is not the CortenDesk server/console. Files under `upstream/` are kept
+byte-identical to that commit. `gesoft-patches.mjs` holds Gesoft's
+modifications (2026-11-08): resource and error-handling bounds against a
+malicious connected peer (zstd output, cursor size, video/audio queues, chat
+history, cursor conversions, invalid handshake key). `build.mjs` applies them
+while bundling, fails if any no longer matches upstream exactly, and lists
+them in the published `provenance.json`. They do not change the wire protocol.
 The upstream logo from `public/rdclient/logo.png` is also included and recorded
 in provenance. The build rewrites the two logo URLs to the module's own asset
 path, so it does not require a root `/rdclient` route.

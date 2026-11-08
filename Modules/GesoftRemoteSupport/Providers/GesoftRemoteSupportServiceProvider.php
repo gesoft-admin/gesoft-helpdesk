@@ -76,6 +76,9 @@ class GesoftRemoteSupportServiceProvider extends ServiceProvider
         // Assets, served from the module's own public path.
         \Eventy::addFilter('javascripts', function ($javascripts) {
             $javascripts[] = \Module::getPublicPath(GESOFT_REMOTE_SUPPORT_MODULE).'/js/module.js';
+            if (config('gesoftremotesupport.viewer_enabled')) {
+                $javascripts[] = \Module::getPublicPath(GESOFT_REMOTE_SUPPORT_MODULE).'/js/viewer-launch.js';
+            }
 
             return $javascripts;
         });

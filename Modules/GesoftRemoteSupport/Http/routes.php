@@ -10,6 +10,14 @@ Route::group([
     'prefix'     => \Helper::getSubdirectory(),
     'namespace'  => 'Modules\GesoftRemoteSupport\Http\Controllers',
 ], function () {
+    Route::post('/gesoft-remote-support/{conversation_id}/viewer', [
+        'uses' => 'WebViewerController@launch',
+    ])->name('gesoftremotesupport.viewer');
+
+    Route::get('/gesoft-remote-support/viewer/auth', [
+        'uses' => 'WebViewerController@authorizeTransport',
+    ])->name('gesoftremotesupport.viewer.auth');
+
     Route::post('/gesoft-remote-support/{conversation_id}/start', [
         'uses'    => 'GesoftRemoteSupportController@start',
         'laroute' => true,

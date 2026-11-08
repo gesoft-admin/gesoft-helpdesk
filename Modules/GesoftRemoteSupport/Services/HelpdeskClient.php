@@ -132,6 +132,17 @@ class HelpdeskClient
         return null;
     }
 
+    public function viewerServerInfo()
+    {
+        $reply = $this->request('GET', '/api/ops/serverinfo');
+        $key = isset($reply['key']) ? base64_decode($reply['key'], true) : false;
+        if ($key === false || strlen($key) !== 32) {
+            throw new HelpdeskException(HelpdeskException::KIND_BAD_RESPONSE, 'invalid server public key');
+        }
+
+        return $reply;
+    }
+
     /**
      * Confirm the session, which is what makes the customer's download
      * claimable — until this call `/d/{code}` shows the page but serves

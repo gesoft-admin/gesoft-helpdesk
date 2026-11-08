@@ -99,6 +99,12 @@
         </div>
 
         <div class="gesoft-rs-actions">
+            @if (config('gesoftremotesupport.viewer_enabled'))
+                <button type="button" class="btn btn-default btn-sm gesoft-rs-web" disabled
+                        data-url="{{ route('gesoftremotesupport.viewer', ['conversation_id' => $conversation->id], false) }}">
+                    {{ __('Open in browser') }}
+                </button>
+            @endif
             <button type="button" class="btn btn-primary btn-sm gesoft-rs-start" @if ($session->isActive() || $session->isStarting()) disabled @endif>
                 {{ __('Start Remote Support') }}
             </button>

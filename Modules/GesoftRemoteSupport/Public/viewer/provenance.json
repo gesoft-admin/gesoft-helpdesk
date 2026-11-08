@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/marcpope/cortendesk",
+  "commit": "6fb03478b009f80524b286c26eeaa67297bada7c",
+  "subdirectory": "webclient",
+  "license": "AGPL-3.0-only",
+  "modified_upstream_files": [],
+  "additional_files": {
+    "logo.png": "public/rdclient/logo.png"
+  }
+}

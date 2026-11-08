@@ -1,0 +1,5 @@
+# Preserve generated bundles byte-for-byte (including embedded WebAssembly).
+Public/viewer/** linguist-generated=true
+Public/viewer/**/*.js -diff -merge -text
+# Imported source is intentionally unmodified, including upstream whitespace.
+WebViewer/upstream/** whitespace=-trailing-space,-space-before-tab

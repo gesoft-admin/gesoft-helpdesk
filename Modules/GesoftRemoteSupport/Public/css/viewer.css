@@ -1,0 +1,9 @@
+html, body { height: 100%; margin: 0; overflow: hidden; background: #101418; }
+body { display: flex; flex-direction: column; }
+.gesoft-viewer-help { flex: none; padding: 7px 12px; color: #ddd; background: #202830; font: 12px system-ui, sans-serif; }
+.gesoft-viewer-help a { color: #a4d5ff; margin-left: 12px; }
+#rd-root { position: relative; inset: auto; flex: 1; min-height: 0; }
+/* Keep advanced entry points out of this attended first-stage workflow. The
+   gateway separately enforces which connection modes may cross it. */
+#rd-btn-files, [data-open="files"], [data-tab="files"],
+#rd-save-row, #rd-btn-terminal, #rd-btn-camera { display: none !important; }

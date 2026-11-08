@@ -55,4 +55,7 @@ return [
      * writing the result — a crash or a PHP timeout mid-call.
      */
     'start_lock_seconds' => 60,
+
+    'viewer_enabled' => env('GESOFT_REMOTE_SUPPORT_VIEWER', false),
+    'viewer_origin' => env('GESOFT_REMOTE_SUPPORT_VIEWER_ORIGIN', ''),
 ];

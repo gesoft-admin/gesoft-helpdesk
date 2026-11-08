@@ -99,15 +99,20 @@
         </div>
 
         <div class="gesoft-rs-actions">
-            @if (config('gesoftremotesupport.viewer_enabled'))
-                <button type="button" class="btn btn-default btn-sm gesoft-rs-web" disabled
-                        data-url="{{ route('gesoftremotesupport.viewer', ['conversation_id' => $conversation->id], false) }}">
-                    {{ __('Open in browser') }}
-                </button>
-            @endif
             <button type="button" class="btn btn-primary btn-sm gesoft-rs-start" @if ($session->isActive() || $session->isStarting()) disabled @endif>
                 {{ __('Start Remote Support') }}
             </button>
+            {{--
+                Enabled once the customer's client has reported an ID
+                (viewer-launch.js), so it comes after Start, as the next step.
+            --}}
+            @if (config('gesoftremotesupport.viewer_enabled'))
+                <button type="button" class="btn btn-default btn-sm gesoft-rs-web" disabled
+                        title="{{ __('Connect to the customer\'s computer from this browser, without installing RustDesk.') }}"
+                        data-url="{{ route('gesoftremotesupport.viewer', ['conversation_id' => $conversation->id], false) }}">
+                    {{ __('Remote control in browser') }}
+                </button>
+            @endif
             <button type="button" class="btn btn-default btn-sm gesoft-rs-close" @if (!$session->isActive()) disabled @endif>
                 {{ __('Close Session') }}
             </button>

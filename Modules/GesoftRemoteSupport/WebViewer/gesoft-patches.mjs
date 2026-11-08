@@ -124,6 +124,17 @@ export function zstdDecode(data: Uint8Array, uncompressedSize = 0): Uint8Array {
     }`,
   },
   {
+    file: 'src/core/webrtc.ts',
+    finding: 'malware review: hard-coded third-party STUN servers',
+    find: `export const DEFAULT_ICE_SERVERS: IceServerConfig[] = [
+  { urls: 'stun:stun.cloudflare.com:3478' },
+  { urls: 'stun:stun.l.google.com:19302' },
+];`,
+    replace: `// Gesoft patch: no third-party STUN by default. WebRTC is not configured in
+// this integration; if it ever is, it must name its own ICE servers.
+export const DEFAULT_ICE_SERVERS: IceServerConfig[] = [];`,
+  },
+  {
     file: 'src/core/session.ts',
     finding: '#5 invalid signed box key escapes handshake error handling',
     find: `    const { bytes, key } = buildPublicKeyMessage(boxPk);

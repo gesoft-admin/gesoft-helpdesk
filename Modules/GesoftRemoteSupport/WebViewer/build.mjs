@@ -25,7 +25,7 @@ await build({ ...options, entryPoints: { app: 'upstream/src/ui/app.ts' },
   }}] });
 await build({ ...options, entryPoints: { 'session.worker': 'upstream/src/worker/session.worker.ts' }, outdir: 'build/assets' });
 await build({ entryPoints: ['gateway.mjs'], outfile: 'build/gateway.cjs', bundle: true,
-  platform: 'node', format: 'cjs', target: 'node18', legalComments: 'linked' });
+  platform: 'node', format: 'cjs', target: 'node24', legalComments: 'linked' });
 await build({ entryPoints: ['trust.test.mjs'], outfile: 'build/trust.test.cjs', bundle: true,
   platform: 'node', format: 'cjs', target: 'node24',
   alias: { 'libsodium-wrappers': require.resolve('libsodium-wrappers') } });

@@ -184,8 +184,7 @@ class GesoftRemoteSupportController extends Controller
             // The listing carries open sessions only, so a session that has
             // dropped out of it has ended — closed from the operator console,
             // or swept past its deadline.
-            $expired = $session->expires_at && $session->expires_at->isPast();
-            $session->markClosed($expired ? RemoteSession::REMOTE_EXPIRED : RemoteSession::REMOTE_CLOSED);
+            $session->markClosed($session->endedRemoteStatus($client));
         } else {
             $session->applyRemoteRow($row);
         }
@@ -531,8 +530,7 @@ class GesoftRemoteSupportController extends Controller
             // makes, and it has to be made here too: leaving the row `active`
             // is what made a later Start hand the agent back the dead session
             // instead of minting a new one.
-            $expired = $session->expires_at && $session->expires_at->isPast();
-            $session->markClosed($expired ? RemoteSession::REMOTE_EXPIRED : RemoteSession::REMOTE_CLOSED);
+            $session->markClosed($session->endedRemoteStatus($client));
             $session->save();
 
             return $session;

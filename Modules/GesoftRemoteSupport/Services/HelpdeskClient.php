@@ -132,6 +132,22 @@ class HelpdeskClient
         return null;
     }
 
+    /**
+     * Why the backend closed a session, e.g. CUSTOMER_DISCONNECTED, or null.
+     * Only a label depends on it, so any failure (an older API without the
+     * route, a timeout) is null and the panel keeps saying "Closed".
+     */
+    public function closeReason($id)
+    {
+        try {
+            $row = $this->request('GET', '/api/ops/'.(int) $id);
+        } catch (HelpdeskException $e) {
+            return null;
+        }
+
+        return isset($row['close_reason']) && is_string($row['close_reason']) ? $row['close_reason'] : null;
+    }
+
     public function viewerServerInfo()
     {
         $reply = $this->request('GET', '/api/ops/serverinfo');

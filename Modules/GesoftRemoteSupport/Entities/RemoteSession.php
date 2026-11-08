@@ -36,6 +36,9 @@ class RemoteSession extends Model
     const REMOTE_READY     = 'READY';
     const REMOTE_CLOSED    = 'CLOSED';
     const REMOTE_EXPIRED   = 'EXPIRED';
+    // Ours, not the wire's: CLOSED because the customer's client stopped
+    // answering (helpdesk-rust close_reason CUSTOMER_DISCONNECTED).
+    const REMOTE_CLIENT_GONE = 'CLIENT_GONE';
 
     /**
      * What the backend says about the peer whose ID we were shown, verbatim.
@@ -207,7 +210,11 @@ class RemoteSession extends Model
         }
 
         if ($this->status === self::STATUS_CLOSED) {
-            return $this->remote_status === self::REMOTE_EXPIRED ? __('Expired') : __('Closed');
+            if ($this->remote_status === self::REMOTE_EXPIRED) {
+                return __('Expired');
+            }
+
+            return $this->remote_status === self::REMOTE_CLIENT_GONE ? __('Closed: customer client disconnected') : __('Closed');
         }
 
         return __('Not started');
@@ -265,6 +272,22 @@ class RemoteSession extends Model
         $this->synced_at = now();
 
         return $before !== [$this->remote_status, $this->remote_id, $this->registration, (string) $this->expires_at];
+    }
+
+    /**
+     * The remote status to record for a session that dropped out of the
+     * backend's open list: expired, closed because the client went quiet, or
+     * plainly closed.
+     */
+    public function endedRemoteStatus(\Modules\GesoftRemoteSupport\Services\HelpdeskClient $client)
+    {
+        if ($this->expires_at && $this->expires_at->isPast()) {
+            return self::REMOTE_EXPIRED;
+        }
+
+        return $client->closeReason($this->helpdesk_session_id) === 'CUSTOMER_DISCONNECTED'
+            ? self::REMOTE_CLIENT_GONE
+            : self::REMOTE_CLOSED;
     }
 
     /** Mark the session finished locally. The backend owns the real cleanup. */

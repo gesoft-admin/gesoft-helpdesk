@@ -55,8 +55,7 @@ class PollSessions extends Command
             }
 
             if ($row === null) {
-                $expired = $session->expires_at && $session->expires_at->isPast();
-                $session->markClosed($expired ? RemoteSession::REMOTE_EXPIRED : RemoteSession::REMOTE_CLOSED);
+                $session->markClosed($session->endedRemoteStatus($client));
                 $session->save();
                 continue;
             }

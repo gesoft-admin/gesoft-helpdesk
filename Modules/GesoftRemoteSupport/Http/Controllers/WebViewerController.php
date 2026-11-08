@@ -55,9 +55,16 @@ class WebViewerController extends Controller
             'version' => 'lab', 'webrtc' => null, 'addressBook' => null,
         ];
 
+        // Read by viewer-bootstrap.js, not by the upstream viewer: lets the page
+        // stop reconnecting once the support session ends in the helpdesk.
+        $lifecycle = [
+            'statusUrl' => route('gesoftremotesupport.status', ['conversation_id' => $conversation->id], false),
+            'session' => '#'.$grant['session'], 'expires' => $grant['expires'],
+        ];
+
         return response()->view('gesoftremotesupport::viewer', [
             'configuration' => $configuration, 'assets' => $assets,
-            'conversation' => $conversation,
+            'conversation' => $conversation, 'lifecycle' => $lifecycle,
         ])->withHeaders($this->headers());
     }
 

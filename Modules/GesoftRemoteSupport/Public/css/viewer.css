@@ -7,3 +7,6 @@ body { display: flex; flex-direction: column; }
    gateway separately enforces which connection modes may cross it. */
 #rd-btn-files, [data-open="files"], [data-tab="files"],
 #rd-save-row, #rd-btn-terminal, #rd-btn-camera { display: none !important; }
+.gesoft-viewer-ended { position: fixed; inset: 0; z-index: 2147483647; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 16px; background: rgba(16, 20, 24, .96); color: #eee; font: 15px/1.5 system-ui, sans-serif; text-align: center; }
+.gesoft-viewer-ended p { margin: 0; max-width: 520px; }
+.gesoft-viewer-ended p + p { color: #aab; font-size: 13px; }

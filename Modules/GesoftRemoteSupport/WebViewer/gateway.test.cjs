@@ -49,6 +49,7 @@ async function fixture(t, options = {}) {
         idUrl: `ws://127.0.0.1:${ids.address().port}`,
         relayUrl: `ws://127.0.0.1:${relays.address().port}`, log: (e) => state.audit.push(e) });
     await new Promise((r) => gateway.server.listen(0, '127.0.0.1', r));
+    state.gateway = gateway;
     const sockets = [];
     state.open = async (kind, options = {}) => {
         const ws = new WebSocket(`ws://127.0.0.1:${gateway.server.address().port}/gesoft-viewer/ws/${options.attempt || ATTEMPT}/${kind}`, {
@@ -148,4 +149,19 @@ for (const scenario of ['revoked', 'fail']) test(`OWASP: ${scenario} authorizati
 test('OWASP: an attempt cannot acquire a second signaling connection', async (t) => {
     const f = await fixture(t); await f.open('id');
     await assert.rejects(f.open('id'), /403/);
+});
+test('OWASP: an authorized but malformed upgrade holds no pair slot', async (t) => {
+    const f = await fixture(t);
+    // Valid Origin, cookie and attempt, but no Sec-WebSocket-Key: ws refuses
+    // the upgrade itself (400) after authorization has passed.
+    const req = http.request({ port: f.gateway.server.address().port, host: '127.0.0.1',
+        path: `/gesoft-viewer/ws/${ATTEMPT}/id`, headers: { Connection: 'Upgrade', Upgrade: 'websocket',
+            'Sec-WebSocket-Version': '13', Origin: ORIGIN, Cookie: 'session=good' } });
+    req.end();
+    const [res] = await once(req, 'response'); res.resume();
+    assert.equal(res.statusCode, 400);
+    assert.equal(f.gateway.pairCount(), 0);
+    const ws = await f.open('id');
+    assert.equal(f.gateway.pairCount(), 1);
+    ws.close();
 });

@@ -107,16 +107,27 @@ export function createGateway(options) {
     catch { pending.delete(reservation); return deny(); }
     pending.delete(reservation);
     if (socket.destroyed) return;
-    let pair = pairs.get(attempt);
-    if (kind === 'relay' && (!pair || !pair.uuid || pair.ended)) return deny();
-    if (pair && (pair.auth.actor !== auth.actor || pair.auth.session !== auth.session ||
-        pair.auth.peer !== auth.peer || pair.auth.key !== auth.key)) return deny();
-    if (!pair) {
-      pair = { attempt, auth, cookie: request.headers.cookie, channels: {}, uuid: '', ended: false };
-      pairs.set(attempt, pair);
-      pair.timer = setTimeout(() => monitor(pair), options.pollMs || 2000);
-    }
-    wss.handleUpgrade(request, socket, head, (client) => connect(pair, kind, client));
+    const existing = pairs.get(attempt);
+    if (kind === 'relay' && (!existing || !existing.uuid || existing.ended)) return deny();
+    if (existing && (existing.auth.actor !== auth.actor || existing.auth.session !== auth.session ||
+        existing.auth.peer !== auth.peer || existing.auth.key !== auth.key)) return deny();
+    // The pair is registered only once the WebSocket upgrade has succeeded: ws
+    // answers a malformed upgrade itself and never calls back, and a pair
+    // registered before that would hold one of the 100 slots, re-authorizing,
+    // until the grant expired.
+    wss.handleUpgrade(request, socket, head, (client) => {
+      let pair = pairs.get(attempt);
+      if (pair !== existing || pair?.ended || pair?.channels[kind] || (!pair && pairs.size >= 100)) {
+        client.close(1008, 'attempt changed');
+        return;
+      }
+      if (!pair) {
+        pair = { attempt, auth, cookie: request.headers.cookie, channels: {}, uuid: '', ended: false };
+        pairs.set(attempt, pair);
+        pair.timer = setTimeout(() => monitor(pair), options.pollMs || 2000);
+      }
+      connect(pair, kind, client);
+    });
   });
 
   function connect(pair, kind, client) {
@@ -207,6 +218,7 @@ export function createGateway(options) {
   }
   return {
     server,
+    pairCount: () => pairs.size,
     close: async () => {
       for (const pair of pairs.values()) end(pair, 'gateway stopping');
       await new Promise((resolve) => wss.close(resolve));

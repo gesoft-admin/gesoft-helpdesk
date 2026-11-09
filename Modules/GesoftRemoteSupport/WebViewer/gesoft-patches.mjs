@@ -229,6 +229,25 @@ export function insideContent(clientX: number, clientY: number, canvasRect: DOMR
       // markup (Fullscreen) blank. Always use the inline SVGs.
       remixAvailable = false;`,
   },
+  {
+    file: 'src/ui/app.ts',
+    finding: 'lab test 2026-11-09: a refused or peer-closed session only said "Disconnected"',
+    find: `  private setState(state: SessionState, detail?: string): void {
+    this.state = state;`,
+    replace: `  private setState(state: SessionState, detail?: string): void {
+    // Gesoft patch: say who ended it. A peer close carries a reason; while
+    // the session was waiting for Accept, that close is the customer's refusal.
+    const peerClosed = state === 'closed' && !this.share && detail
+      ? (this.state === 'needAccept' ? 'Clientul a refuzat conexiunea.' : \`Clientul a închis conexiunea (\${detail}).\`)
+      : null;
+    this.state = state;`,
+  },
+  {
+    file: 'src/ui/app.ts',
+    finding: 'lab test 2026-11-09: a refused or peer-closed session only said "Disconnected"',
+    find: `        this.setOverlayStatusText(this.share && detail ? detail : tl('disconnected'));`,
+    replace: `        this.setOverlayStatusText(this.share && detail ? detail : peerClosed ?? tl('disconnected'));`,
+  },
 ];
 
 // Upstream's logo markup assumes the CortenDesk site root; point it at the

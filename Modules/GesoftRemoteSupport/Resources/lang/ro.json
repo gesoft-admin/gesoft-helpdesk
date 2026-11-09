@@ -42,5 +42,7 @@
     "Start Remote Support": "Pornește asistența la distanță",
     "Starting…": "Se pornește…",
     "That remote session no longer exists.": "Sesiunea la distanță nu mai există.",
-    "Waiting for customer": "Se așteaptă clientul"
+    "Waiting for customer": "Se așteaptă clientul",
+    "New link": "Link nou",
+    "The link sent earlier will stop working and the customer will need the new one. Continue?": "Linkul trimis anterior nu va mai funcționa, iar clientul va avea nevoie de cel nou. Continuați?"
 }

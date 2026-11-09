@@ -34,7 +34,9 @@
       "src/input/mouse-keyboard.ts: lab test 2026-11-09: hover over letterbox bars moves the remote cursor",
       "src/input/mouse-keyboard.ts: lab test 2026-11-09: click on letterbox bars clicks the remote edge",
       "src/input/mouse-keyboard.ts: lab test 2026-11-09: release of a press that was never sent",
-      "src/ui/common.ts: lab test 2026-11-09: blank toolbar icons"
+      "src/ui/common.ts: lab test 2026-11-09: blank toolbar icons",
+      "src/ui/app.ts: lab test 2026-11-09: a refused or peer-closed session only said \"Disconnected\"",
+      "src/ui/app.ts: lab test 2026-11-09: a refused or peer-closed session only said \"Disconnected\""
     ]
   }
 }

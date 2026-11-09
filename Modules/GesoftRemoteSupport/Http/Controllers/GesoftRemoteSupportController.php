@@ -70,6 +70,31 @@ class GesoftRemoteSupportController extends Controller
             return $this->error($e->userMessage(), RemoteSession::forConversation($conversation->id));
         }
 
+        // "New link": the agent gives up the open session on purpose — the
+        // customer's client failed, closed early, or the link went to the
+        // wrong place — and wants a fresh one in the same conversation. The
+        // old session is closed through the backend first, so its link stops
+        // working before the new one exists; one active session per
+        // conversation still holds.
+        if ($request->input('renew')) {
+            $current = RemoteSession::forConversation($conversation->id);
+            if ($current->exists && $current->isActive()) {
+                if ($current->helpdesk_session_id) {
+                    try {
+                        $client->close($current->helpdesk_session_id);
+                    } catch (HelpdeskException $e) {
+                        if (!$e->meansAlreadyGone()) {
+                            return $this->error($e->userMessage(), $current);
+                        }
+                    }
+                }
+                $current->markClosed();
+                $current->save();
+                \Log::info(self::LOG_PREFIX.': conversation '.$conversation->id
+                    .' renewed: closed helpdesk session '.$current->helpdesk_session_id);
+            }
+        }
+
         // Two agents on the same conversation, or one agent double-clicking,
         // must not produce two sessions. The claim is a row-level one in the
         // database, not a disabled button: the button is a courtesy, this is

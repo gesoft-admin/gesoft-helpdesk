@@ -55,7 +55,9 @@ async function checkSession() {
     try { reply = await response.json(); } catch (_) { return; }
     const state = reply && reply.state;
     if (state && (!state.is_active || state.session_ref !== lifecycle.session)) {
-        end('Sesiunea de asistență a fost închisă din helpdesk.');
+        end(state.remote_status === 'CLIENT_GONE'
+            ? 'Clientul a închis sesiunea de asistență. Dacă mai are nevoie de ajutor, porniți un link nou din tichet.'
+            : 'Sesiunea de asistență a fost închisă din helpdesk.');
     }
 }
 setInterval(() => { if (!document.hidden) checkSession(); }, 3000);

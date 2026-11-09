@@ -102,7 +102,8 @@
         }
 
         p.find('.gesoft-rs-hint').toggle(!!state.is_active);
-        p.find('.gesoft-rs-start').prop('disabled', !!state.is_active || !!state.is_busy);
+        p.find('.gesoft-rs-start').prop('disabled', !!state.is_busy);
+        startLabel(!!state.is_active);
         p.find('.gesoft-rs-close').prop('disabled', !state.is_active);
 
         if (state.is_active) {
@@ -112,7 +113,13 @@
         }
     }
 
-    function call(url, method) {
+    // The start button reads "New link" while a session is open.
+    function startLabel(active) {
+        var b = panel().find('.gesoft-rs-start');
+        b.text(b.data(active ? 'label-renew' : 'label-start')).data('renew', active);
+    }
+
+    function call(url, method, extra) {
         var p = panel(),
             msg = p.find('.gesoft-rs-msg');
 
@@ -123,7 +130,7 @@
             url: url,
             type: method || 'POST',
             dataType: 'json',
-            data: method === 'GET' ? {} : { _token: csrfToken() }
+            data: method === 'GET' ? {} : $.extend({ _token: csrfToken() }, extra || {})
         }).done(function (response) {
             if (response && response.state) {
                 applyState(response.state);
@@ -158,7 +165,8 @@
         var p = panel(),
             active = p.find('.gesoft-rs-close').data('was-active');
 
-        p.find('.gesoft-rs-start').prop('disabled', !!active);
+        p.find('.gesoft-rs-start').prop('disabled', false);
+        startLabel(!!active);
         p.find('.gesoft-rs-close').prop('disabled', !active);
     }
 
@@ -270,6 +278,14 @@
     });
 
     $(document).on('click', '.gesoft-rs-start', function () {
+        var b = $(this);
+        if (b.data('renew')) {
+            if (!window.confirm(b.data('confirm-renew'))) {
+                return;
+            }
+            call(panel().data('url-start'), 'POST', { renew: 1 });
+            return;
+        }
         call(panel().data('url-start'), 'POST');
     });
 
@@ -373,6 +389,7 @@
     // polling without waiting for a click.
     $(function () {
         if (!panel().find('.gesoft-rs-close').prop('disabled')) {
+            panel().find('.gesoft-rs-start').data('renew', true);
             startPolling();
         }
 

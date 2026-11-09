@@ -47,8 +47,16 @@
         </div>
 
         <div class="gesoft-rs-actions">
-            <button type="button" class="btn btn-primary btn-sm gesoft-rs-start" @if ($session->isActive() || $session->isStarting()) disabled @endif>
-                {{ __('Start Remote Support') }}
+            {{--
+                While a session is open the same button offers a new link: it
+                closes the open session (after a confirmation) and starts
+                another, so a failed attempt never strands the conversation.
+            --}}
+            <button type="button" class="btn btn-primary btn-sm gesoft-rs-start" @if ($session->isStarting()) disabled @endif
+                    data-label-start="{{ __('Start Remote Support') }}"
+                    data-label-renew="{{ __('New link') }}"
+                    data-confirm-renew="{{ __('The link sent earlier will stop working and the customer will need the new one. Continue?') }}">
+                {{ $session->isActive() ? __('New link') : __('Start Remote Support') }}
             </button>
             {{--
                 Enabled once the customer's client has reported an ID

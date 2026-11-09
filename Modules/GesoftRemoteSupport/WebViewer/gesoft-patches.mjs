@@ -5,8 +5,10 @@
 // applies these exact replacements while bundling; each `find` must occur
 // exactly once, so an upstream change under a patch fails the build instead of
 // silently skipping it. Reasons refer to docs/web-viewer-crypto-review-2026-11-08.md
-// in helpdesk-rust. All are resource or error-handling bounds against a
-// malicious connected peer; none changes the RustDesk wire protocol.
+// in helpdesk-rust. Most are resource or error-handling bounds against a
+// malicious connected peer; the 2026-11-09 ones fix pointer input over the
+// letterbox bars and blank toolbar icons found in the lab test. None changes
+// the RustDesk wire protocol.
 export const patches = [
   {
     file: 'src/input/clipboard-cursor.ts',
@@ -149,6 +151,83 @@ export const DEFAULT_ICE_SERVERS: IceServerConfig[] = [];`,
       return;
     }
     this.sinks.sendRelay(bytes);`,
+  },
+  {
+    file: 'src/input/mouse-keyboard.ts',
+    finding: 'lab test 2026-11-09: pointer over letterbox bars reaches the remote edge',
+    find: `const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);`,
+    replace: `const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+// Gesoft patch: whether a point lies on the remote picture itself, not on the
+// black bars "Fit to screen" leaves around it. mapCoords clamps bar points to
+// the remote edge, so a click beside the picture (e.g. under the viewer's own
+// header) clicked the remote window's close button.
+export function insideContent(clientX: number, clientY: number, canvasRect: DOMRect, display: DisplayRect): boolean {
+  const { width: rw, height: rh, left, top } = canvasRect;
+  if (display.width <= 0 || display.height <= 0 || rw <= 0 || rh <= 0) return false;
+  const dispAspect = display.width / display.height;
+  let contentW = rw;
+  let contentH = rh;
+  if (rw / rh > dispAspect) contentW = rh * dispAspect;
+  else contentH = rw / dispAspect;
+  const x = clientX - left - (rw - contentW) / 2;
+  const y = clientY - top - (rh - contentH) / 2;
+  return x >= 0 && y >= 0 && x <= contentW && y <= contentH;
+}`,
+  },
+  {
+    file: 'src/input/mouse-keyboard.ts',
+    finding: 'lab test 2026-11-09: hover over letterbox bars moves the remote cursor',
+    find: `    const h = held.get(e.pointerId);
+    if (h) {
+      h.x = e.clientX;
+      h.y = e.clientY;
+    }
+    posted(e, buttonMask(MouseType.MOVE, 0));`,
+    replace: `    const h = held.get(e.pointerId);
+    // Gesoft patch: outside the picture only a drag in progress keeps moving.
+    if (!h && !insideContent(e.clientX, e.clientY, el.getBoundingClientRect(), getDisplay())) return;
+    if (h) {
+      h.x = e.clientX;
+      h.y = e.clientY;
+    }
+    posted(e, buttonMask(MouseType.MOVE, 0));`,
+  },
+  {
+    file: 'src/input/mouse-keyboard.ts',
+    finding: 'lab test 2026-11-09: click on letterbox bars clicks the remote edge',
+    find: `  const onPointerDown = (e: PointerEvent): void => {
+`,
+    replace: `  const onPointerDown = (e: PointerEvent): void => {
+    // Gesoft patch: a press beside the picture never reaches the remote.
+    if (!touchActive(e) && !insideContent(e.clientX, e.clientY, el.getBoundingClientRect(), getDisplay())) return;
+`,
+  },
+  {
+    file: 'src/input/mouse-keyboard.ts',
+    finding: 'lab test 2026-11-09: release of a press that was never sent',
+    find: `    const mask = domButtonToMask(e.button);
+    const h = held.get(e.pointerId);
+    if (h) {
+      h.mask &= ~mask;
+      if (!h.mask) held.delete(e.pointerId);
+    }
+    posted(e, buttonMask(MouseType.UP, mask));`,
+    replace: `    const mask = domButtonToMask(e.button);
+    const h = held.get(e.pointerId);
+    // Gesoft patch: release only buttons whose press reached the remote.
+    if (!h || !(h.mask & mask)) return;
+    h.mask &= ~mask;
+    if (!h.mask) held.delete(e.pointerId);
+    posted(e, buttonMask(MouseType.UP, mask));`,
+  },
+  {
+    file: 'src/ui/common.ts',
+    finding: 'lab test 2026-11-09: blank toolbar icons',
+    find: `      remixAvailable = typeof document !== 'undefined' && !!document.fonts?.check('16px remixicon');`,
+    replace: `      // Gesoft patch: Remix Icon is not shipped here, and FontFaceSet.check()
+      // returns true for a family nobody declared, which left Remix-only
+      // markup (Fullscreen) blank. Always use the inline SVGs.
+      remixAvailable = false;`,
   },
 ];
 

@@ -10,6 +10,8 @@ import { initZstd, zstdDecode, ZSTD_MAX_OUTPUT } from './upstream/src/input/clip
 import zlib from 'node:zlib';
 import { RendezvousMessage } from './upstream/src/gen/rendezvous.ts';
 import { Session } from './upstream/src/core/session.ts';
+import { attachInput, insideContent } from './upstream/src/input/mouse-keyboard.ts';
+import { iconHtml } from './upstream/src/ui/common.ts';
 before(sodiumReady);
 function signed(key, id, peerKey) {
     return sodium.crypto_sign(IdPk.encode(IdPk.fromPartial({id, pk:peerKey})).finish(), key.privateKey);
@@ -91,4 +93,45 @@ test('Gesoft patch #2: zstd output is bounded before allocation', async () => {
     assert.throws(()=>zstdDecode(new Uint8Array([0x28,0xb5,0x2f,0xfd,0xa0,0,0,0,0x40,0])),/out of bounds/);
     // An explicit capacity smaller than the content is refused, not truncated silently.
     assert.throws(()=>zstdDecode(small,1000));
+});
+
+// Gesoft patches 2026-11-09: pointer input over the letterbox bars, toolbar icons.
+// A 1000x500 canvas showing a 1000x1000 remote: picture x 250..750, bars beside it.
+const RECT={left:0,top:0,width:1000,height:500};
+const DISPLAY={x:0,y:0,width:1000,height:1000};
+test('Gesoft patch: points on the letterbox bars are not on the picture', () => {
+    assert.equal(insideContent(500,250,RECT,DISPLAY),true);
+    assert.equal(insideContent(250,0,RECT,DISPLAY),true);
+    assert.equal(insideContent(249,10,RECT,DISPLAY),false);
+    assert.equal(insideContent(990,10,RECT,DISPLAY),false);
+    assert.equal(insideContent(500,250,RECT,{x:0,y:0,width:0,height:0}),false);
+});
+// The minimum of a DOM that attachInput and iconHtml touch, for node:test.
+globalThis.document ??= {addEventListener(){},removeEventListener(){},fonts:{check:()=>true}};
+function fakeCanvas() {
+    const on={};
+    const el={tabIndex:0,addEventListener(t,f){on[t]=f},removeEventListener(){},getBoundingClientRect(){return RECT},
+        focus(){},setPointerCapture(){},releasePointerCapture(){}};
+    const sent=[];
+    attachInput(el,(c)=>{if(c.c==='mouse')sent.push(c)},()=>DISPLAY);
+    const ev=(x,y,button=0)=>({clientX:x,clientY:y,button,pointerId:1,pointerType:'mouse',timeStamp:0,preventDefault(){},
+        getModifierState(){return false},ctrlKey:false,shiftKey:false,altKey:false,metaKey:false});
+    return {on,sent,ev};
+}
+test('Gesoft patch: hover and click on the bars never reach the remote', () => {
+    const {on,sent,ev}=fakeCanvas();
+    on.pointermove(ev(990,10)); on.pointerdown(ev(990,10)); on.pointerup(ev(990,10));
+    assert.equal(sent.length,0);
+    on.pointermove(ev(500,250));
+    assert.equal(sent.length,1);
+    assert.deepEqual([sent[0].x,sent[0].y],[500,500]);
+});
+test('Gesoft patch: a drag that leaves the picture still moves and releases', () => {
+    const {on,sent,ev}=fakeCanvas();
+    on.pointerdown(ev(700,250)); on.pointermove(ev(990,10)); on.pointerup(ev(990,10));
+    assert.equal(sent.length,3);
+    assert.deepEqual([sent[1].x,sent[1].y],[1000,20]);
+});
+test('Gesoft patch: toolbar icons render as inline SVG', () => {
+    assert.match(iconHtml('fullscreen'),/^<svg /);
 });

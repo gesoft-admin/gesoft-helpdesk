@@ -1,4 +1,4 @@
-// Gesoft, 2026-11-08. AGPL-3.0-only.
+// Gesoft, 2026-11-08; file transfer 2026-11-10. AGPL-3.0-only.
 const configuration = JSON.parse(document.getElementById('gesoft-viewer-config').textContent);
 window.__RD__ = configuration;
 // This first integration is attended. Do not reuse a credential left by an
@@ -63,8 +63,12 @@ async function checkSession() {
 setInterval(() => { if (!document.hidden) checkSession(); }, 3000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkSession(); });
 await import(new URL('../viewer/app.js', import.meta.url).href);
-// Additional modes need their own policy and are outside this first integration.
-for (const id of ['rd-btn-files', 'rd-btn-terminal', 'rd-btn-camera', 'rd-save-row']) {
+// File transfer has its own setting (the gateway refuses it without one);
+// without it, every way into the file panel is hidden by viewer.css: the
+// dock button, the side tab, the edge button and the More tile, which the
+// viewer rebuilds each time. Terminal and camera stay outside this integration.
+if (!lifecycle.files) document.documentElement.classList.add('gesoft-viewer-no-files');
+for (const id of ['rd-btn-terminal', 'rd-btn-camera', 'rd-save-row']) {
     const element = document.getElementById(id);
     if (element) element.hidden = true;
 }

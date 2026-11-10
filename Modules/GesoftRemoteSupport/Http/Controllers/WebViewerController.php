@@ -1,6 +1,6 @@
 <?php
 
-// Gesoft, 2026-11-08. AGPL-3.0-only. Independent of the desktop support routes.
+// Gesoft, 2026-11-08; file transfer 2026-11-10. AGPL-3.0-only. Independent of the desktop support routes.
 namespace Modules\GesoftRemoteSupport\Http\Controllers;
 
 use App\Conversation;
@@ -41,6 +41,7 @@ class WebViewerController extends Controller
             'key' => (string) $server['key'],
             'expires' => $expires,
             'browser' => hash('sha256', $request->session()->getId()),
+            'files' => (bool) config('gesoftremotesupport.viewer_files'),
         ];
         \Cache::put('gesoft-viewer:'.$attempt, $grant, now()->addSeconds($expires - time()));
         \Log::info('GesoftRemoteSupport viewer launched', [
@@ -64,6 +65,7 @@ class WebViewerController extends Controller
         $lifecycle = [
             'statusUrl' => route('gesoftremotesupport.status', ['conversation_id' => $conversation->id], false),
             'session' => '#'.$grant['session'], 'expires' => $grant['expires'],
+            'files' => $grant['files'],
         ];
 
         return response()->view('gesoftremotesupport::viewer', [
@@ -89,9 +91,15 @@ class WebViewerController extends Controller
         $row = $this->liveSession($session, new HelpdeskClient());
         abort_unless((string) $row['rustdesk_id'] === $grant['peer'], 403);
 
+        // File transfer needs both the grant (the setting when the viewer was
+        // opened) and the setting now: turning it off ends file transfers at
+        // the gateway's next check. Grants from before this change have none.
+        $files = ($grant['files'] ?? false) === true && (bool) config('gesoftremotesupport.viewer_files');
+
         return response()->json([
             'actor' => $grant['actor'], 'session' => $grant['session'],
             'peer' => $grant['peer'], 'expires' => $grant['expires'], 'key' => $grant['key'],
+            'files' => $files,
         ])->withHeaders($this->headers());
     }
 

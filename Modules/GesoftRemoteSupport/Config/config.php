@@ -58,4 +58,7 @@ return [
 
     'viewer_enabled' => env('GESOFT_REMOTE_SUPPORT_VIEWER', false),
     'viewer_origin' => env('GESOFT_REMOTE_SUPPORT_VIEWER_ORIGIN', ''),
+    // File transfer in the browser viewer, both directions, while the customer's
+    // accepted remote control is active. Off unless set.
+    'viewer_files' => env('GESOFT_REMOTE_SUPPORT_VIEWER_FILES', false),
 ];

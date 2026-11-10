@@ -17,7 +17,7 @@ const relay = (extra = {}) => encode('request_relay', {
     id: '12345678', licence_key: KEY, uuid: 'authorized-uuid', conn_type: 0, ...extra,
 });
 async function fixture(t, options = {}) {
-    const state = { revoked: false, fail: false, idMessages: [], relayMessages: [], audit: [] };
+    const state = { revoked: false, fail: false, files: options.files === true, idMessages: [], relayMessages: [], audit: [] };
     const auth = http.createServer((req, res) => {
         if (state.fail) { res.writeHead(503); return res.end(); }
         if (state.revoked || req.headers.cookie !== 'session=good' || req.headers['x-viewer-attempt'] !== ATTEMPT) {
@@ -25,7 +25,7 @@ async function fixture(t, options = {}) {
         }
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ peer: '12345678', actor: 4, session: 9, key: KEY,
-            expires: Math.floor(Date.now() / 1000) + 60 }));
+            expires: Math.floor(Date.now() / 1000) + 60, ...(options.noFilesField ? {} : { files: state.files }) }));
     });
     const ids = new WebSocketServer({ port: 0, host: '127.0.0.1' });
     // A relay that accepts TCP but never answers the upgrade keeps the
@@ -38,12 +38,17 @@ async function fixture(t, options = {}) {
         new Promise((r) => auth.listen(0, '127.0.0.1', r))]);
     ids.on('connection', (ws) => ws.on('message', (bytes) => {
         state.idMessages.push(bytes);
-        ws.send(encode('relay_response', { uuid: 'authorized-uuid', relay_server: 'not-trusted.example:21117' }));
+        const file = RendezvousMessage.decode(bytes).union?.punch_hole_request?.conn_type === 1;
+        ws.send(encode('relay_response', { uuid: options.uuid || (file ? 'file-uuid' : 'authorized-uuid'),
+            relay_server: 'not-trusted.example:21117' }));
     }));
-    if (!options.stallRelay) relays.on('connection', (ws) => ws.on('message', (bytes) => {
-        state.relayMessages.push(bytes);
-        if (state.relayMessages.length > 1) ws.send(bytes);
-    }));
+    // Each relay connection echoes everything after its own RequestRelay.
+    if (!options.stallRelay) relays.on('connection', (ws) => { let seen = 0; ws.on('message', (bytes) => {
+        state.relayMessages.push(bytes); seen++;
+        if (bytes.toString() === 'FLOOD') {
+            for (let i = 0; i < 24; i++) ws.send(Buffer.alloc(1024 * 1024, i));
+        } else if (seen > 1) ws.send(bytes);
+    }); });
     const gateway = createGateway({ origin: ORIGIN, pollMs: 40, authTimeoutMs: 200,
         authUrl: `http://127.0.0.1:${auth.address().port}/authorize`,
         idUrl: `ws://127.0.0.1:${ids.address().port}`,
@@ -58,6 +63,14 @@ async function fixture(t, options = {}) {
         sockets.push(ws);
         await once(ws, 'open');
         return ws;
+    };
+    state.filePair = async () => {
+        const id = await state.open('id');
+        const response = once(id, 'message');
+        id.send(punch({ conn_type: 1 })); await response;
+        const data = await state.open('relay');
+        data.send(relay({ uuid: 'file-uuid', conn_type: 1 }));
+        return { id, data };
     };
     state.pair = async () => {
         const id = await state.open('id');
@@ -164,4 +177,144 @@ test('OWASP: an authorized but malformed upgrade holds no pair slot', async (t) 
     const ws = await f.open('id');
     assert.equal(f.gateway.pairCount(), 1);
     ws.close();
+});
+
+// File transfer: a second RustDesk connection (FILE_TRANSFER) of the same
+// viewer page, only while the desktop relay is up and the grant allows files.
+const echo = async (ws, bytes) => {
+    const reply = once(ws, 'message'); ws.send(bytes);
+    return (await reply)[0];
+};
+const until = async (condition) => {
+    for (let i = 0; i < 100 && !condition(); i++) await new Promise((r) => setTimeout(r, 20));
+    assert.ok(condition());
+};
+test('files: refused when the grant does not allow them', async (t) => {
+    const f = await fixture(t); await f.pair();
+    await assert.rejects(f.open('id'), /403/);
+});
+test('files: refused by a helpdesk that sends no files field', async (t) => {
+    const f = await fixture(t, { noFilesField: true }); await f.pair();
+    await assert.rejects(f.open('id'), /403/);
+});
+test('files: refused before the desktop relay is up', async (t) => {
+    const f = await fixture(t, { files: true }); const id = await f.open('id');
+    const response = once(id, 'message'); id.send(punch()); await response;
+    await assert.rejects(f.open('id'), /403/);
+});
+test('files: a file-transfer connection runs beside the desktop', async (t) => {
+    const f = await fixture(t, { files: true }); const desktop = await f.pair();
+    await echo(desktop.data, Buffer.from([1]));
+    const file = await f.filePair();
+    assert.deepEqual(await echo(file.data, Buffer.from([7, 7])), Buffer.from([7, 7]));
+    assert.deepEqual(await echo(desktop.data, Buffer.from([2])), Buffer.from([2]));
+    const forwarded = RendezvousMessage.decode(f.idMessages[1]).union.punch_hole_request;
+    assert.equal(forwarded.conn_type, 1);
+    const requests = f.relayMessages.map((m) => {
+        try { return RendezvousMessage.decode(m).union?.request_relay; } catch { return undefined; }
+    }).filter((r) => r?.uuid === 'file-uuid');
+    assert.equal(requests.length, 1); assert.equal(requests[0].conn_type, 1);
+    assert.ok(f.audit.some((e) => e.event === 'viewer.file.opened'));
+});
+test('files: only one file-transfer connection at a time', async (t) => {
+    const f = await fixture(t, { files: true }); await f.pair(); await f.filePair();
+    await assert.rejects(f.open('id'), /403/);
+});
+for (const [name, mode] of [['port forward', 2], ['RDP', 3], ['camera', 4], ['terminal', 5]]) {
+    test(`files: a ${name} connection is refused and ends the page's transport`, async (t) => {
+        const f = await fixture(t, { files: true }); const desktop = await f.pair();
+        await echo(desktop.data, Buffer.from([1]));
+        const id = await f.open('id'); const closed = once(desktop.data, 'close');
+        id.send(punch({ conn_type: mode })); await closed;
+        assert.equal(f.idMessages.length, 1);
+    });
+}
+test('files: the file relay cannot use the desktop uuid', async (t) => {
+    const f = await fixture(t, { files: true }); const desktop = await f.pair();
+    await echo(desktop.data, Buffer.from([1]));
+    const id = await f.open('id'); const response = once(id, 'message');
+    id.send(punch({ conn_type: 1 })); await response;
+    const before = f.relayMessages.length;
+    const data = await f.open('relay'); const closed = once(data, 'close');
+    data.send(relay({ uuid: 'authorized-uuid', conn_type: 1 })); await closed;
+    assert.equal(f.relayMessages.length, before);
+});
+test('files: the file relay must keep the file-transfer mode', async (t) => {
+    const f = await fixture(t, { files: true }); const desktop = await f.pair();
+    await echo(desktop.data, Buffer.from([1]));
+    const id = await f.open('id'); const response = once(id, 'message');
+    id.send(punch({ conn_type: 1 })); await response;
+    const before = f.relayMessages.length;
+    const data = await f.open('relay'); const closed = once(data, 'close');
+    data.send(relay({ uuid: 'file-uuid', conn_type: 0 })); await closed;
+    assert.equal(f.relayMessages.length, before);
+});
+test('files: a relay uuid handed out twice is refused', async (t) => {
+    const f = await fixture(t, { files: true, uuid: 'same-uuid' });
+    const id = await f.open('id'); const response = once(id, 'message');
+    id.send(punch()); await response;
+    const data = await f.open('relay'); data.send(relay({ uuid: 'same-uuid' }));
+    await echo(data, Buffer.from([1]));
+    const second = await f.open('id'); const closed = once(second, 'close');
+    second.send(punch({ conn_type: 1 })); await closed;
+    assert.ok(f.audit.some((e) => e.reason === 'invalid signaling response'));
+    assert.deepEqual(await echo(data, Buffer.from([2])), Buffer.from([2]));
+});
+test('files: closing the file transfer keeps the desktop', async (t) => {
+    const f = await fixture(t, { files: true }); const desktop = await f.pair();
+    await echo(desktop.data, Buffer.from([1]));
+    const file = await f.filePair(); await echo(file.data, Buffer.from([2]));
+    file.data.close(); file.id.close();
+    await until(() => f.audit.some((e) => e.event === 'viewer.file.closed'));
+    assert.deepEqual(await echo(desktop.data, Buffer.from([3])), Buffer.from([3]));
+    const again = await f.filePair();
+    assert.deepEqual(await echo(again.data, Buffer.from([4])), Buffer.from([4]));
+});
+test('files: closing the desktop ends the file transfer', async (t) => {
+    const f = await fixture(t, { files: true }); const desktop = await f.pair();
+    await echo(desktop.data, Buffer.from([1]));
+    const file = await f.filePair(); await echo(file.data, Buffer.from([2]));
+    const closed = once(file.data, 'close'); desktop.data.close(); await closed;
+    assert.equal(f.gateway.pairCount(), 0);
+});
+test('files: withdrawing files from the grant ends only the file transfer', async (t) => {
+    const f = await fixture(t, { files: true }); const desktop = await f.pair();
+    await echo(desktop.data, Buffer.from([1]));
+    const file = await f.filePair(); await echo(file.data, Buffer.from([2]));
+    const closed = once(file.data, 'close'); f.files = false; await closed;
+    assert.ok(f.audit.some((e) => e.reason === 'file transfer no longer allowed'));
+    assert.deepEqual(await echo(desktop.data, Buffer.from([3])), Buffer.from([3]));
+    await assert.rejects(f.open('id'), /403/);
+});
+test('files: revoking the grant ends desktop and file transfer', async (t) => {
+    const f = await fixture(t, { files: true }); const desktop = await f.pair();
+    await echo(desktop.data, Buffer.from([1]));
+    const file = await f.filePair(); await echo(file.data, Buffer.from([2]));
+    const closed = Promise.all([once(file.data, 'close'), once(desktop.data, 'close')]);
+    f.revoked = true; await closed;
+});
+test('files: a page may open file transfer a bounded number of times', async (t) => {
+    const f = await fixture(t, { files: true }); const desktop = await f.pair();
+    await echo(desktop.data, Buffer.from([1]));
+    for (let i = 0; i < 20; i++) {
+        const id = await f.open('id'); const response = once(id, 'message');
+        id.send(punch({ conn_type: 1 })); await response;
+        const closed = once(id, 'close'); id.close(); await closed;
+        await until(() => f.audit.filter((e) => e.event === 'viewer.file.closed').length === i + 1);
+    }
+    await assert.rejects(f.open('id'), /403/);
+});
+test('backpressure: a slow browser pauses the relay instead of losing the session', async (t) => {
+    const f = await fixture(t, { files: true }); const desktop = await f.pair();
+    await echo(desktop.data, Buffer.from([1]));
+    const file = await f.filePair(); await echo(file.data, Buffer.from([2]));
+    let received = 0;
+    file.data.on('message', (bytes) => { received += bytes.length; });
+    file.data.pause();
+    file.data.send(Buffer.from('FLOOD'));
+    await new Promise((r) => setTimeout(r, 600));
+    file.data.resume();
+    await until(() => received === 24 * 1024 * 1024);
+    assert.ok(!f.audit.some((e) => e.reason === 'backpressure limit'));
+    assert.deepEqual(await echo(desktop.data, Buffer.from([3])), Buffer.from([3]));
 });

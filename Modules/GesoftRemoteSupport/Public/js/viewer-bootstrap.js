@@ -62,12 +62,13 @@ async function checkSession() {
 }
 setInterval(() => { if (!document.hidden) checkSession(); }, 3000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkSession(); });
-await import(new URL('../viewer/app.js', import.meta.url).href);
 // File transfer has its own setting (the gateway refuses it without one);
 // without it, every way into the file panel is hidden by viewer.css: the
 // dock button, the side tab, the edge button and the More tile, which the
-// viewer rebuilds each time. Terminal and camera stay outside this integration.
+// viewer rebuilds each time. Set before the viewer draws anything.
 if (!lifecycle.files) document.documentElement.classList.add('gesoft-viewer-no-files');
+await import(new URL('../viewer/app.js', import.meta.url).href);
+// Terminal and camera stay outside this integration.
 for (const id of ['rd-btn-terminal', 'rd-btn-camera', 'rd-save-row']) {
     const element = document.getElementById(id);
     if (element) element.hidden = true;

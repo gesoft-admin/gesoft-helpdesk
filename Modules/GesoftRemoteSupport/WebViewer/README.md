@@ -32,8 +32,13 @@ backend support session and peer. The gateway rechecks it every two seconds,
 fails closed on errors, and limits signaling/relay pairing to that peer.
 End-to-end encrypted desktop payloads are opaque to the gateway. Closing a
 viewer or failing its transport does not close the underlying support session.
-Separate file-transfer, terminal and camera connection modes are refused in
-this first stage. The initial agent keeps its existing attended Accept policy.
+File transfer (2026-11-10) is a second connection of the same viewer page,
+allowed only with `GESOFT_REMOTE_SUPPORT_VIEWER_FILES=true` and only while the
+desktop connection's relay is up; it ends with the desktop connection, with the
+grant, or when the setting is turned off. The Gesoft support client lets it in
+without a second Accept only while the customer's accepted control of the same
+viewer session is active. Terminal and camera modes are refused. The agent
+otherwise keeps its attended Accept policy.
 
 Build and regression commands live in the private `helpdesk-rust` repository:
 

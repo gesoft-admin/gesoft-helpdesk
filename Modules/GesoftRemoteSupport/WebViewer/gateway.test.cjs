@@ -49,7 +49,7 @@ async function fixture(t, options = {}) {
             for (let i = 0; i < 24; i++) ws.send(Buffer.alloc(1024 * 1024, i));
         } else if (seen > 1) ws.send(bytes);
     }); });
-    const gateway = createGateway({ origin: ORIGIN, pollMs: 40, authTimeoutMs: 200,
+    const gateway = createGateway({ origin: ORIGIN, pollMs: 40, authTimeoutMs: 200, stallMs: options.stallMs,
         authUrl: `http://127.0.0.1:${auth.address().port}/authorize`,
         idUrl: `ws://127.0.0.1:${ids.address().port}`,
         relayUrl: `ws://127.0.0.1:${relays.address().port}`, log: (e) => state.audit.push(e) });
@@ -316,5 +316,15 @@ test('backpressure: a slow browser pauses the relay instead of losing the sessio
     file.data.resume();
     await until(() => received === 24 * 1024 * 1024);
     assert.ok(!f.audit.some((e) => e.reason === 'backpressure limit'));
+    assert.deepEqual(await echo(desktop.data, Buffer.from([3])), Buffer.from([3]));
+});
+test('backpressure: a browser that never reads again ends the file transfer only', async (t) => {
+    const f = await fixture(t, { files: true, stallMs: 400 }); const desktop = await f.pair();
+    await echo(desktop.data, Buffer.from([1]));
+    const file = await f.filePair(); await echo(file.data, Buffer.from([2]));
+    file.data.pause();
+    file.data.send(Buffer.from('FLOOD'));
+    await until(() => f.audit.some((e) => e.reason === 'stalled'));
+    assert.ok(f.audit.some((e) => e.event === 'viewer.file.closed' && e.reason === 'stalled'));
     assert.deepEqual(await echo(desktop.data, Buffer.from([3])), Buffer.from([3]));
 });

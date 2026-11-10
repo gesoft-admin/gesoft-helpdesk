@@ -13,8 +13,11 @@ const QUEUE_MESSAGES = 256;
 // Backpressure marks for a destination's unsent bytes; see send() below.
 const HIGH_WATER = 4 * 1024 * 1024;
 const LOW_WATER = 1024 * 1024;
-// File-transfer connections one viewer page may open over its life.
+// File-transfer connections a pair may open (a pair lives as long as its
+// desktop leg; a reconnect of the page starts a new one).
 const FILE_OPENS = 20;
+// How long a destination may stay above the low mark once its source is paused.
+const STALL_MS = 60000;
 
 // Policy checks only trust a message that re-encodes to exactly the bytes
 // received: trailing data, stray terminators or unknown fields are refused.
@@ -76,6 +79,7 @@ export function createGateway(options) {
   function closeChannel(channel) {
     if (!channel || channel.closed) return;
     channel.closed = true;
+    for (const timer of Object.values(channel.stalls)) clearTimeout(timer);
     for (const socket of [channel.client, channel.upstream]) {
       if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
         try { socket.close(1008); } catch { /* CONNECTING upstream: terminate below */ }
@@ -205,7 +209,7 @@ export function createGateway(options) {
   function connect(pair, leg, kind, client) {
     const upstream = new WebSocket(kind === 'id' ? options.idUrl : options.relayUrl,
       { maxPayload: LIMIT, perMessageDeflate: false, handshakeTimeout: 5000 });
-    const channel = { client, upstream, first: true, queue: [], bytes: 0, closed: false };
+    const channel = { client, upstream, first: true, queue: [], bytes: 0, closed: false, stalls: {} };
     leg[kind] = channel;
     audit(pair, 'viewer.transport.opened', kind, { leg: leg.name });
 
@@ -219,9 +223,19 @@ export function createGateway(options) {
       if (destination.readyState !== WebSocket.OPEN) return fail(pair, leg, 'transport unavailable', side);
       destination.send(bytes, { binary: true }, (error) => {
         if (error) return fail(pair, leg, 'send failed', side);
-        if (source.isPaused && destination.bufferedAmount < LOW_WATER) source.resume();
+        if (source.isPaused && destination.bufferedAmount < LOW_WATER) {
+          clearTimeout(channel.stalls[side]);
+          source.resume();
+        }
       });
-      if (!source.isPaused && destination.bufferedAmount > HIGH_WATER) source.pause();
+      if (!source.isPaused && destination.bufferedAmount > HIGH_WATER) {
+        source.pause();
+        // A destination that never drains (a browser that stopped reading, a
+        // half-open connection) would hold the leg paused for as long as the
+        // grant lasts.
+        clearTimeout(channel.stalls[side]);
+        channel.stalls[side] = setTimeout(() => fail(pair, leg, 'stalled', side), options.stallMs || STALL_MS);
+      }
     }
     upstream.on('open', () => {
       for (const bytes of channel.queue) send(client, upstream, bytes, 'browser');

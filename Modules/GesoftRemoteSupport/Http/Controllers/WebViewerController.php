@@ -26,7 +26,11 @@ class WebViewerController extends Controller
         $client = new HelpdeskClient();
         $row = $this->liveSession($session, $client);
         $server = $client->viewerServerInfo();
-        $expires = min(time() + 1800, \Carbon\Carbon::parse($row['expires_at'])->getTimestamp());
+        // The grant lasts as long as the intervention. It used to stop at 30
+        // minutes, which put the technician out of a longer session; the
+        // gateway re-checks login, mailbox access and the intervention every
+        // two seconds, so closing or revoking any of them still ends it at once.
+        $expires = \Carbon\Carbon::parse($row['expires_at'])->getTimestamp();
         abort_unless($expires > time(), 410);
         $attempt = bin2hex(random_bytes(24));
         $grant = [

@@ -12,6 +12,7 @@
     "src/media/video.ts",
     "src/ui/app.ts",
     "src/ui/common.ts",
+    "src/ui/file-panel.ts",
     "src/worker/session.worker.ts"
   ],
   "additional_files": {
@@ -36,7 +37,10 @@
       "src/input/mouse-keyboard.ts: lab test 2026-11-09: release of a press that was never sent",
       "src/ui/common.ts: lab test 2026-11-09: blank toolbar icons",
       "src/ui/app.ts: lab test 2026-11-09: a refused or peer-closed session only said \"Disconnected\"",
-      "src/ui/app.ts: lab test 2026-11-09: a refused or peer-closed session only said \"Disconnected\""
+      "src/ui/app.ts: lab test 2026-11-09: a refused or peer-closed session only said \"Disconnected\"",
+      "src/ui/file-panel.ts: lab test 2026-11-11: a single received file was saved under a GUID",
+      "src/ui/file-panel.ts: lab test 2026-11-11: a single received file was saved under a GUID",
+      "src/ui/file-panel.ts: lab test 2026-11-11: a single received file was saved under a GUID"
     ]
   }
 }

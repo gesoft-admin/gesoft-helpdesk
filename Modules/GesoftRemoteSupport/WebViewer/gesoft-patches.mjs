@@ -248,6 +248,31 @@ export function insideContent(clientX: number, clientY: number, canvasRect: DOMR
     find: `        this.setOverlayStatusText(this.share && detail ? detail : tl('disconnected'));`,
     replace: `        this.setOverlayStatusText(this.share && detail ? detail : peerClosed ?? tl('disconnected'));`,
   },
+  {
+    file: 'src/ui/file-panel.ts',
+    finding: 'lab test 2026-11-11: a single received file was saved under a GUID',
+    find: `    job.status = 'running';
+    const rel = job.remoteFiles?.[ev.fileNum]?.name ?? job.label;`,
+    replace: `    // Gesoft patch: RustDesk names the entry of a single file "" (its path
+    // is the file itself), and ?? keeps ""; the browser then saves it
+    // under a GUID. Fall back to the name shown in the panel.
+    job.status = 'running';
+    const rel = job.remoteFiles?.[ev.fileNum]?.name || job.label;`,
+  },
+  {
+    file: 'src/ui/file-panel.ts',
+    finding: 'lab test 2026-11-11: a single received file was saved under a GUID',
+    find: `          job.curFileNum = ev.fileNum;
+          const rel = job.remoteFiles?.[ev.fileNum]?.name ?? job.label;`,
+    replace: `          job.curFileNum = ev.fileNum;
+          const rel = job.remoteFiles?.[ev.fileNum]?.name || job.label;`,
+  },
+  {
+    file: 'src/ui/file-panel.ts',
+    finding: 'lab test 2026-11-11: a single received file was saved under a GUID',
+    find: `      const rel = job.remoteFiles?.[job.curFileNum]?.name ?? job.label;`,
+    replace: `      const rel = job.remoteFiles?.[job.curFileNum]?.name || job.label;`,
+  },
 ];
 
 // Upstream's logo markup assumes the CortenDesk site root; point it at the

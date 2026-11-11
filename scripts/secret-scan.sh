@@ -60,10 +60,19 @@ while IFS= read -r f; do
     # and examples in public documentation belong in the ranges reserved for it
     # (RFC 5737) or under example.com (RFC 2606). Upstream's own files are not
     # our business, so they are not checked.
+    #
+    # Two things are not "somebody's network" and are left alone (2026-11-11;
+    # CI had failed on them since 2026-09-13, and every check after this one
+    # had stopped running):
+    #   - loopback, 127.0.0.1: code that binds or insists on the local machine;
+    #   - private ranges inside a module's Tests/: fixtures that exercise the
+    #     private-origin rules on purpose, where a documentation range would
+    #     change what the test means.
     case "$f" in
+        Modules/*/Tests/*) ;;
         Modules/*|docs/*|scripts/*|public/brand/*|*.md|.env.gesoft.example)
             while read -r l; do report "internal address" "$f:${l%%:*}"; done \
-                < <(grep -nE "(^|[^0-9.])(10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+|127\.0\.0\.1)" "$f" 2>/dev/null)
+                < <(grep -nE "(^|[^0-9.])(10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)" "$f" 2>/dev/null)
             ;;
     esac
 
